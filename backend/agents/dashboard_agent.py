@@ -24,13 +24,15 @@ SAMPLE DATA (first 25 rows):
 {sample_csv}
 
 TASK:
-1. Create EXACTLY 4 intelligent dashboards.
-2. Group charts logically into themes (e.g., Revenue, Customer, Time Trends, Operations).
-3. Each dashboard must have:
-   - A short, premium title (max 4 words)
-   - A 1-line business-focused description
-   - 2 to 3 charts
-   - 2 key insights (trends, patterns, anomalies) based on what you expect the data shows.
+1. Create EXACTLY 3 intelligent dashboards based on the following specific themes:
+   - "Executive Overview"
+   - "Sales Analytics"
+   - "Customer Insights"
+2. Each dashboard must have:
+   - A perfectly matched title from the list above.
+   - A 1-line business-focused description.
+   - 3 to 4 charts.
+   - 2 key insights (trends, patterns, anomalies) based on what the query data shows.
    - A conversational voice narration script (max 20 seconds) summarizing the dashboard and its insights. Do not sound robotic.
 4. For EACH chart, you MUST provide a valid SQLite query to fetch its data, along with axes and type. 
    - ALWAYS use the exact table name: {table_name}

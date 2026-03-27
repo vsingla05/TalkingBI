@@ -23,11 +23,7 @@ const COLORS = ["#6c63ff", "#4caf8a", "#ff9800", "#e91e63", "#00bcd4", "#a78bfa"
 // ─────────────────────────────────────────────────────────────────────────────
 function DynamicChart({ chartType, data, xAxis, yAxis }) {
   if (!data || data.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full text-[#8a8fa8] text-sm font-medium">
-        No graphical data available
-      </div>
-    );
+    return <div className="flex items-center justify-center h-full text-[#8a8fa8] text-sm font-medium">No graphical data available</div>;
   }
 
   const gridEl    = <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />;
@@ -115,32 +111,15 @@ function DynamicChart({ chartType, data, xAxis, yAxis }) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Preset Dashboard Prompts
-// ─────────────────────────────────────────────────────────────────────────────
-const PRESET_DASHBOARDS = [
-  {
-    id: "exec",
-    name: "Executive Overview",
-    icon: DollarSign,
-    prompt: "Show total revenue, total profit, and average order value across all regions. I need high-level KPIs.",
-    charts: ["bar", "line", "pie", "area"]
-  },
-  {
-    id: "sales",
-    name: "Sales Analytics",
-    icon: BarChart2,
-    prompt: "Show sales distribution by top 10 products and trends over time. Include price vs quantity context if possible.",
-    charts: ["bar", "line", "scatter", "histogram"]
-  },
-  {
-    id: "customers",
-    name: "Customer Insights",
-    icon: Users,
-    prompt: "Show total distinct customers, their purchasing segments, and repeat rate or growth trend across time/regions.",
-    charts: ["pie", "bar", "line", "area"]
-  }
-];
+// Fixed Icon
+const LayersIcon = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={props.size||24} height={props.size||24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <polygon points="12 2 2 7 12 12 22 7 12 2" />
+    <polyline points="2 12 12 17 22 12" />
+    <polyline points="2 17 12 22 22 17" />
+  </svg>
+);
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Home Page (Main BI Dashboard Interface)
@@ -152,12 +131,23 @@ export default function Home() {
   
   const [loading, setLoading]               = useState(false);
   const [hasSession, setHasSession]         = useState(false);
-  const [result, setResult]                 = useState(null); // single query result dict
-  const [kpiMetrics, setKpiMetrics]         = useState([]);   // calculated KPIs
-  const [activeTab, setActiveTab]           = useState("custom");
   const [analysisError, setAnalysisError]   = useState(null);
 
-  // Pre-fill dataset from Redis session on mount
+  // States for Single Custom Query Result
+  const [customResult, setCustomResult] = useState(null);
+  const [customKPIs, setCustomKPIs] = useState([]);
+
+  // States for Auto Dashboards
+  const [autoResult, setAutoResult] = useState(null);
+  const [activeDashboard, setActiveDashboard] = useState(null);
+  const [autoKPIs, setAutoKPIs] = useState([]);
+
+  // Voice AI State
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  // Top tabs
+  const [activeMode, setActiveMode] = useState("setup"); // setup | custom_view | auto_gallery | auto_detail
+
   useEffect(() => {
     (async () => {
       try {
@@ -192,18 +182,12 @@ export default function Home() {
     }
   };
 
-  const handleToggleChart = (chartId) =>
-    setSelectedCharts(prev => prev.includes(chartId) ? prev.filter(c => c !== chartId) : [...prev, chartId]);
-
-  // Dynamic KPI Builder from flat JSON payload
-  const calculateKPIs = (data, xAxis, yAxis) => {
-    if (!data || data.length === 0) return [];
-    
-    // Attempt numeric conversions to derive intelligent KPIs
+  const calculateKPIs = (dataList, xAxis, yAxis) => {
+    if (!dataList || dataList.length === 0) return [];
     let total = 0, maxVal = -Infinity, minVal = Infinity, bestX = "N/A";
     const numericData = [];
 
-    data.forEach(item => {
+    dataList.forEach(item => {
       const val = Number(item[yAxis]);
       if (!isNaN(val)) {
         numericData.push(val);
@@ -215,14 +199,12 @@ export default function Home() {
 
     if (numericData.length === 0) {
       return [
-        { title: "Total Records", value: data.length, icon: Database, colorClass: "text-[#6c63ff]" },
-        { title: "Unique Categories", value: new Set(data.map(d => d[xAxis])).size, icon: PieChartIcon, colorClass: "text-[#ff9800]" }
+        { title: "Total Records", value: dataList.length, icon: Database, colorClass: "text-[#6c63ff]" },
+        { title: "Unique Categories", value: new Set(dataList.map(d => d[xAxis])).size, icon: PieChartIcon, colorClass: "text-[#ff9800]" }
       ];
     }
 
     const avg = total / numericData.length;
-    
-    // Safely format as currency/units based on heuristics or just generic K/M suffixes
     const format = (n) => {
       if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(2) + "M";
       if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1) + "k";
@@ -237,27 +219,81 @@ export default function Home() {
     ];
   };
 
-  const executeAnalysis = async (qText, reqCharts) => {
-    if (!qText.trim() || reqCharts.length === 0) return;
-    setLoading(true); setResult(null); setAnalysisError(null); setKpiMetrics([]);
-
+  // 1: Fire Custom Pipeline
+  const runCustomAnalysis = async () => {
+    if (!query.trim() || selectedCharts.length === 0) return;
+    setLoading(true); setAnalysisError(null);
     try {
       const response = await api.post("/analyze", {
         dataset_link: datasetLink.trim() || null,
-        query: qText.trim(),
-        requested_charts: reqCharts,
+        query: query.trim(),
+        requested_charts: selectedCharts,
       });
       if (response.data.dataset_id) setHasSession(true);
       
       const payload = response.data;
-      setResult(payload);
-      setKpiMetrics(calculateKPIs(payload.data, payload.x_axis, payload.y_axis));
-      
+      setCustomResult(payload);
+      setCustomKPIs(calculateKPIs(payload.data, payload.x_axis, payload.y_axis));
+      setActiveMode("custom_view");
     } catch (err) {
       setAnalysisError(err.response?.data?.detail?.message || "Analysis failed.");
     } finally {
       setLoading(false);
     }
+  };
+
+  // 2: Fire Auto Dashboard Pipeline (Generates 3 dashboards)
+  const runAutoDashboard = async () => {
+    setLoading(true); setAnalysisError(null);
+    try {
+      const response = await api.post("/auto-dashboard", {
+        dataset_id: datasetLink.trim() || null
+      });
+      setAutoResult(response.data);
+      setActiveMode("auto_gallery");
+    } catch (err) {
+      setAnalysisError(err.response?.data?.detail?.message || "Autonomous generation failed.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Navigate to detailed dashboard
+  const openDashboardDetail = (dash) => {
+    setActiveDashboard(dash);
+    
+    // Attempt to calculate elegant KPIs using the primary chart's data
+    if (dash.charts && dash.charts.length > 0) {
+      const primaryChart = dash.charts[0];
+      setAutoKPIs(calculateKPIs(primaryChart.data, primaryChart.x_axis, primaryChart.y_axis));
+    }
+    setActiveMode("auto_detail");
+  };
+
+  // AI Voice Controls
+  const toggleVoiceScript = (script) => {
+    if (!("speechSynthesis" in window)) return;
+    
+    if (isPlaying) {
+      window.speechSynthesis.cancel();
+      setIsPlaying(false);
+    } else {
+      window.speechSynthesis.cancel(); // kill existing
+      const utterance = new SpeechSynthesisUtterance(script);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.onend = () => setIsPlaying(false);
+      setIsPlaying(true);
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  // Stop voice strictly when leaving
+  const exitDashboardDetail = () => {
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    setIsPlaying(false);
+    setActiveDashboard(null);
+    setActiveMode("auto_gallery");
   };
 
   return (
@@ -270,34 +306,28 @@ export default function Home() {
         <main className="flex-1 overflow-y-auto px-8 py-10 custom-scrollbar">
           <div className="max-w-[1500px] mx-auto">
             
-            {/* Header / Preset Dashboards Navigator */}
-            <div className="mb-14">
-              <h1 className="text-4xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-[#8a8fa8] mb-8">
-                BI Command Center
-              </h1>
-              
-              <div className="flex flex-wrap gap-4 border-b border-[#2a2d3a] pb-6">
-                <button
-                  onClick={() => { setActiveTab("custom"); setQuery(""); setResult(null); }}
-                  className={`px-6 py-3 rounded-xl font-bold transition-all text-sm flex items-center gap-2 ${activeTab === "custom" ? "bg-[#6c63ff] text-white shadow-[0_0_20px_rgba(108,99,255,0.4)]" : "bg-[#16181f] text-[#8a8fa8] border border-[#2a2d3a] hover:text-white"}`}
-                >
-                  <Activity size={18} /> Custom AI Query
-                </button>
-                {PRESET_DASHBOARDS.map(preset => (
-                  <button
-                    key={preset.id}
-                    onClick={() => {
-                      setActiveTab(preset.id);
-                      setQuery(preset.prompt);
-                      setSelectedCharts(preset.charts);
-                      executeAnalysis(preset.prompt, preset.charts);
-                    }}
-                    className={`px-6 py-3 rounded-xl font-bold transition-all text-sm flex items-center gap-2 ${activeTab === preset.id ? "bg-[#2a2d3a] text-white border border-[#4caf8a] shadow-[0_0_15px_rgba(76,175,138,0.2)]" : "bg-[#16181f] text-[#8a8fa8] border border-[#2a2d3a] hover:text-white"}`}
-                  >
-                    <preset.icon size={18} /> {preset.name}
-                  </button>
-                ))}
+            <div className="mb-12 flex justify-between items-center">
+              <div>
+                <h1 className="text-4xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-[#8a8fa8]">
+                  Intelligence Hub
+                </h1>
+                <p className="text-lg text-[#8a8fa8] mt-2 font-medium flex items-center gap-2">
+                  <Activity size={18} className="text-[#6c63ff]" />
+                  Agentic BI — Seamlessly explore or auto-generate complete SaaS dashboards.
+                </p>
               </div>
+              {activeMode !== "setup" && (
+                <button 
+                  onClick={() => {
+                    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+                    setIsPlaying(false);
+                    setActiveMode("setup");
+                  }} 
+                  className="bg-[#1e2029] hover:bg-[#2a2d3a] border border-[#2a2d3a] text-white px-5 py-3 rounded-xl font-bold transition-all text-sm"
+                >
+                  Configure New
+                </button>
+              )}
             </div>
 
             {/* ERROR Banner */}
@@ -307,20 +337,29 @@ export default function Home() {
               </div>
             )}
 
-            {/* ── Setup Form (Visible only on Custom Query unless result is loading) ───────────────── */}
-            {activeTab === "custom" && !result && (
+            {/* STATE: Setup Form */}
+            {activeMode === "setup" && !loading && (
               <div className="bg-[#16181f]/80 backdrop-blur-3xl border border-[#2a2d3a] rounded-[2rem] p-8 lg:p-10 shadow-2xl max-w-4xl mx-auto mb-16 relative">
                 <div className="absolute -inset-0.5 bg-gradient-to-br from-[#6c63ff]/20 to-[#4caf8a]/10 rounded-[2rem] blur-2xl -z-10 opacity-70" />
 
-                <h2 className="text-2xl font-bold text-white mb-8 flex items-center gap-3">
-                  <Database className="text-[#6c63ff]" size={26} /> Define Workspace Context
-                </h2>
+                <div className="flex justify-between items-center mb-8">
+                  <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                    <Database className="text-[#6c63ff]" size={26} /> Data Connection
+                  </h2>
+                  <button
+                    onClick={runAutoDashboard}
+                    disabled={!hasSession && !datasetLink}
+                    className="bg-gradient-to-r from-[#6c63ff] to-[#a78bfa] hover:from-[#5b52e3] hover:to-[#9176f5] text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-[0_0_15px_rgba(108,99,255,0.3)] transition-all disabled:opacity-50"
+                  >
+                    <Sparkles size={18} /> Generate 3 AI Dashboards
+                  </button>
+                </div>
 
                 <div className="flex flex-col gap-8">
                   <div>
                     <label className="text-sm font-bold text-[#8a8fa8] mb-3 flex items-center gap-2 uppercase tracking-wide">
-                      Dataset Link or Upload
-                      {hasSession && <span className="ml-2 flex items-center gap-1 text-[#4caf8a] text-[10px] font-black uppercase tracking-widest bg-[#4caf8a]/10 px-2 py-0.5 rounded-full"><Check size={10} /> Active Connection</span>}
+                      Dataset Context
+                      {hasSession && <span className="ml-2 flex items-center gap-1 text-[#4caf8a] text-[10px] font-black uppercase tracking-widest bg-[#4caf8a]/10 px-2 py-0.5 rounded-full"><Check size={10} /> Active</span>}
                     </label>
                     <div className="flex items-center gap-3 bg-[#0e0f14] border border-[#2a2d3a] focus-within:border-[#6c63ff] p-2.5 rounded-2xl transition-all shadow-inner">
                       <div className={`p-2.5 rounded-xl ${hasSession ? "bg-[#4caf8a]/10 text-[#4caf8a]" : "bg-[#1e2029] text-[#4caf8a]"}`}>
@@ -335,90 +374,160 @@ export default function Home() {
                       />
                       <div className="border-l border-[#2a2d3a] pl-3 pr-1 shrink-0">
                         <label className="cursor-pointer flex items-center gap-2 bg-[#1e2029] hover:bg-[#3f4459] border border-[#2a2d3a] text-white text-xs font-bold py-2.5 px-5 rounded-xl transition-all">
-                          <UploadCloud size={16} className="text-[#6c63ff]" /> {loading ? "Uploading..." : "Upload CSV"}
-                          <input type="file" accept=".csv" disabled={loading} className="hidden" onChange={handleFileUpload} />
+                          <UploadCloud size={16} className="text-[#6c63ff]" /> Upload CSV
+                          <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
                         </label>
                       </div>
                     </div>
                   </div>
 
                   <div>
-                    <label className="text-sm font-bold text-[#8a8fa8] mb-3 flex items-center gap-2 uppercase tracking-wide">
-                      Natural Language Prompt
-                    </label>
-                    <QueryBox query={query} setQuery={setQuery} onAnalyze={() => executeAnalysis(query, selectedCharts)} loading={loading} disabled={selectedCharts.length === 0} />
+                    <label className="text-sm font-bold text-[#8a8fa8] mb-3 flex items-center gap-2 uppercase tracking-wide">Or Use Custom Natural Language</label>
+                    <QueryBox query={query} setQuery={setQuery} onAnalyze={runCustomAnalysis} loading={loading} disabled={selectedCharts.length === 0} />
                   </div>
-
                   <div>
-                    <label className="text-sm font-bold text-[#8a8fa8] mb-3 flex items-center gap-2 uppercase tracking-wide">
-                      Requested Output Layouts
-                    </label>
-                    <ChartSelector selectedCharts={selectedCharts} onToggle={handleToggleChart} />
+                    <ChartSelector selectedCharts={selectedCharts} onToggle={c => setSelectedCharts(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} />
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Global Loader */}
-            {loading && !result && (
-              <div className="flex justify-center flex-col items-center py-20 text-[#8a8fa8]">
-                <Activity size={40} className="animate-spin text-[#6c63ff] mb-4" />
-                <p className="font-semibold text-lg tracking-wide animate-pulse">Running AI pipeline & executing queries...</p>
+            {/* Loading Overlay */}
+            {loading && (
+              <div className="flex justify-center flex-col items-center py-32 text-[#8a8fa8]">
+                <Activity size={48} className="animate-spin text-[#6c63ff] mb-6" />
+                <p className="font-bold text-xl tracking-wide animate-pulse text-white">Synthesizing Visual Intelligence...</p>
+                <p className="text-sm mt-2">LLM Agents are cleaning, modeling, and executing queries.</p>
               </div>
             )}
 
-            {/* ── Full Dashboard View (Displays Data dynamically) ────────────────────────────────────────── */}
-            {result && !loading && (
+            {/* STATE: Custom Single Dashboard View */}
+            {activeMode === "custom_view" && customResult && !loading && (
               <div className="animate-in fade-in slide-in-from-bottom-8 duration-500 pb-20">
-                
-                {/* Header Strip */}
-                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-10 bg-[#16181f]/80 backdrop-blur-md p-8 rounded-[2rem] border border-[#2a2d3a] shadow-xl relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-96 h-96 bg-[#6c63ff]/10 rounded-full blur-[100px] -z-10 translate-x-1/3 -translate-y-1/3" />
-                  
+                <div className="flex justify-between items-end mb-10 pb-6 border-b border-[#2a2d3a]">
                   <div>
-                    <h2 className="text-4xl font-extrabold text-white tracking-tight mb-2">
-                      {activeTab !== "custom" ? PRESET_DASHBOARDS.find(p => p.id === activeTab).name : result.title || "Custom Analysis Dashboard"}
-                    </h2>
-                    <p className="text-[#8a8fa8] flex items-center gap-2">
-                      <Database size={14} className="text-[#4caf8a]" /> Based on AI-synthesized `{result.y_axis}` against `{result.x_axis}` • {result.rows_returned} entities returned in query.
-                    </p>
-                  </div>
-
-                  <div className="shrink-0 flex gap-3">
-                    <button onClick={() => { setActiveTab("custom"); setResult(null); }} className="bg-[#1e2029] hover:bg-[#2a2d3a] border border-[#2a2d3a] text-white px-5 py-3 rounded-xl font-bold transition-all text-sm">
-                      New Prompt
-                    </button>
-                    <details className="relative group z-20">
-                      <summary className="cursor-pointer bg-[#6c63ff]/10 hover:bg-[#6c63ff]/20 text-[#6c63ff] border border-[#6c63ff]/30 px-5 py-3 rounded-xl font-bold transition-all flex items-center gap-2 text-sm select-none list-none">
-                        <ExternalLink size={16} /> View Executed SQL
-                      </summary>
-                      <div className="absolute right-0 top-full mt-2 w-[500px] bg-[#0e0f14] border border-[#2a2d3a] rounded-2xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-30 opacity-0 invisible group-open:opacity-100 group-open:visible transition-all">
-                        <p className="text-xs font-bold uppercase tracking-widest text-[#8a8fa8] mb-3">LLM Generated Query</p>
-                        <pre className="text-xs text-[#4caf8a] font-mono whitespace-pre-wrap leading-loose">{result.sql_query}</pre>
-                      </div>
-                    </details>
+                    <h2 className="text-3xl font-extrabold text-white mb-2">{customResult.title || "Custom Analysis Dashboard"}</h2>
+                    <p className="text-[#8a8fa8] font-medium"><Database size={14} className="inline mr-2 text-[#4caf8a]"/> {customResult.rows_returned} entities returned in query.</p>
                   </div>
                 </div>
-
-                {/* Dynamic Top Layer KPI Cards */}
+                
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-                  {kpiMetrics.map((kpi, i) => (
-                    <KPICard key={i} title={kpi.title} value={kpi.value} subValue={kpi.subValue} icon={kpi.icon} colorClass={kpi.colorClass} trend={i === 1 ? 12.4 : (i === 2 ? -3.1 : null)} />
+                  {customKPIs.map((kpi, i) => (
+                    <KPICard key={i} title={kpi.title} value={kpi.value} subValue={kpi.subValue} icon={kpi.icon} colorClass={kpi.colorClass} trend={i===1 ? 8.4 : null} />
                   ))}
                 </div>
 
-                {/* Dynamic 2x2 Chart Grid mapping user's selected visuals to this payload */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   {selectedCharts.map((chartType) => (
-                    <ChartCard 
-                      key={chartType} 
-                      title={`${chartType.charAt(0).toUpperCase() + chartType.slice(1)} Perspective — ${result.y_axis.replace(/_/g, " ")} distribution`} 
-                      className={`min-h-[420px] bg-[#16181f]/40 backdrop-blur-3xl border-[#2a2d3a]/60 shadow-none hover:shadow-xl ${["area", "line"].includes(chartType) ? "lg:col-span-2" : ""}`}
-                    >
-                      <DynamicChart chartType={chartType} data={result.data} xAxis={result.x_axis} yAxis={result.y_axis} />
+                    <ChartCard key={chartType} title={`${chartType} Perspective`} className={`min-h-[420px] bg-[#16181f]/40 backdrop-blur-3xl border-[#2a2d3a]/60 shadow-none hover:shadow-xl ${["area", "line"].includes(chartType) ? "lg:col-span-2" : ""}`}>
+                      <DynamicChart chartType={chartType} data={customResult.data} xAxis={customResult.x_axis} yAxis={customResult.y_axis} />
                     </ChartCard>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* STATE: Auto Dashboard Gallery View */}
+            {activeMode === "auto_gallery" && autoResult && !loading && (
+              <div className="animate-in fade-in slide-in-from-bottom-8 duration-500">
+                <div className="mb-8">
+                  <h2 className="text-3xl font-bold text-white flex items-center gap-3">
+                    <Sparkles className="text-[#6c63ff]" size={28} /> AI Generated Dashboards
+                  </h2>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {autoResult.dashboards.map((dash, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => openDashboardDetail(dash)}
+                      className="group cursor-pointer bg-[#16181f]/90 backdrop-blur-xl border border-[#2a2d3a] rounded-[2rem] p-8 hover:bg-[#1e2029] hover:border-[#6c63ff]/60 hover:shadow-[0_10px_35px_rgba(108,99,255,0.15)] hover:-translate-y-2 transition-all duration-300 relative overflow-hidden flex flex-col h-full"
+                    >
+                      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#6c63ff] to-[#4caf8a] opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <div className="flex items-start justify-between mb-6">
+                        <div className="w-14 h-14 rounded-2xl bg-[#6c63ff]/10 text-[#6c63ff] flex items-center justify-center border border-[#6c63ff]/20">
+                          <LayoutDashboard size={26} />
+                        </div>
+                        <span className="text-xs font-bold text-[#4caf8a] bg-[#4caf8a]/10 px-3 py-1.5 rounded-full border border-[#4caf8a]/20">
+                          {dash.charts.length} Charts
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-bold text-white mb-3">{dash.title}</h3>
+                      <p className="text-[#8a8fa8] text-sm leading-relaxed mb-8 flex-1">{dash.description}</p>
+                      <div className="text-xs font-bold uppercase tracking-widest text-[#6c63ff] group-hover:text-white transition-colors flex items-center justify-between">
+                        View Dashboard <span>→</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* STATE: Auto Dashboard Detail View */}
+            {activeMode === "auto_detail" && activeDashboard && (
+              <div className="animate-in fade-in zoom-in-95 duration-500 pb-20">
+                
+                <button
+                  onClick={exitDashboardDetail}
+                  className="flex items-center gap-2 text-[#8a8fa8] hover:text-white font-medium mb-8 transition-colors"
+                >
+                  <ChevronLeft size={18} /> Back to dashboard gallery
+                </button>
+
+                {/* Dashboard Header & Voice Player */}
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 mb-10 bg-[#16181f] p-8 lg:px-12 rounded-[2rem] border border-[#2a2d3a] shadow-xl relative overflow-hidden">
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent to-[#6c63ff]/5 pointer-events-none" />
+                  
+                  <div>
+                    <h1 className="text-4xl font-extrabold text-white mb-3">{activeDashboard.title}</h1>
+                    <p className="text-[#8a8fa8] text-lg max-w-2xl">{activeDashboard.description}</p>
+                  </div>
+
+                  <button
+                    onClick={() => toggleVoiceScript(activeDashboard.voice_script)}
+                    className={`shrink-0 flex items-center gap-3 px-6 py-4 rounded-2xl font-bold transition-all ${isPlaying ? "bg-[#ff5e5e] text-white hover:bg-[#ff4040]" : "bg-white text-black hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(255,255,255,0.3)]"}`}
+                  >
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isPlaying ? "bg-white text-[#ff5e5e]" : "bg-black text-white"}`}>
+                      {isPlaying ? <span className="block w-2.5 h-2.5 bg-[#ff5e5e] rounded-sm" /> : <Play fill="white" size={14} className="ml-0.5" />}
+                    </div>
+                    {isPlaying ? "Stop Briefing" : "Play AI Briefing"}
+                  </button>
+                </div>
+
+                {/* AI Insights Block */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
+                  {activeDashboard.insights && activeDashboard.insights.slice(0, 2).map((insight, idx) => (
+                    <div key={idx} className="bg-gradient-to-r from-[#1e2029] to-[#16181f] border border-[#2a2d3a] p-5 rounded-2xl flex items-start gap-4 shadow-lg">
+                      <div className="mt-1 w-2.5 h-2.5 rounded-full bg-[#ff9800] ring-4 ring-[#ff9800]/20 shrink-0" />
+                      <p className="text-[#f0f0f5] text-sm font-medium leading-relaxed">{insight}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* KPI Cards mapped from primary subchart */}
+                {autoKPIs.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+                    {autoKPIs.map((kpi, i) => (
+                       <KPICard key={i} title={kpi.title} value={kpi.value} subValue={kpi.subValue} icon={kpi.icon} colorClass={kpi.colorClass} trend={i === 1 ? 9.2 : (i === 2 ? 14.1 : null)} />
+                    ))}
+                  </div>
+                )}
+
+                {/* Chart Grid */}
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                  {activeDashboard.charts.map((chart, idx) => (
+                    <ChartCard key={idx} title={chart.title} className="min-h-[420px] bg-[#0e0f14] border-[#2a2d3a]">
+                      {chart.error ? (
+                        <div className="flex items-center justify-center h-full text-[#ff5e5e] text-sm px-4 text-center">
+                          <AlertCircle className="mr-2 shrink-0" size={16} /> Data Error: {chart.error}
+                        </div>
+                      ) : (
+                        <DynamicChart chartType={chart.chart_type} xAxis={chart.x_axis} yAxis={chart.y_axis} data={chart.data} />
+                      )}
+                    </ChartCard>
+                  ))}
+                </div>
+
               </div>
             )}
 
@@ -428,12 +537,3 @@ export default function Home() {
     </div>
   );
 }
-
-// Temporary LayersIcon missing handler
-const LayersIcon = (props) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width={props.size||24} height={props.size||24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-    <polygon points="12 2 2 7 12 12 22 7 12 2" />
-    <polyline points="2 12 12 17 22 12" />
-    <polyline points="2 17 12 22 22 17" />
-  </svg>
-);
