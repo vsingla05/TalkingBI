@@ -6,6 +6,7 @@ Handles common URL patterns including Google Sheets sharing links.
 """
 
 import io
+import os
 import re
 import requests
 import pandas as pd
@@ -32,6 +33,19 @@ def fetch_dataset(dataset_url: str, timeout: int = 30) -> pd.DataFrame:
     Raises:
         ValueError: on HTTP errors, empty data, or parse failures.
     """
+    if dataset_url.startswith("local://"):
+        file_path = dataset_url.replace("local://", "")
+        if not os.path.exists(file_path):
+            raise ValueError(f"Local uploaded file not found: {file_path}")
+        try:
+            df = pd.read_csv(file_path)
+            if df.empty:
+                raise ValueError("Uploaded dataset is empty (0 rows after parsing).")
+            print(f"✅ Ingested dataset: {df.shape[0]} rows × {df.shape[1]} cols from local file")
+            return df
+        except Exception as e:
+            raise ValueError(f"Failed to parse CSV content: {e}")
+
     if not dataset_url.startswith(("http://", "https://")):
         raise ValueError(f"Invalid URL scheme: {dataset_url!r}. Must start with http:// or https://")
 
