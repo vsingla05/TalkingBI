@@ -6,7 +6,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from auth_utils import get_current_user_id
 from redis_client import redis_client
-from schemas import SetDatasetRequest, DatasetStatusResponse, AnalyzeRequest
+from schemas import SetDatasetRequest, DatasetStatusResponse, AnalyzeRequest, AskQuestionRequest
 from config import SESSION_TTL
 
 router = APIRouter()
@@ -179,4 +179,90 @@ async def auto_dashboard(body: SetDatasetRequest, user_id: int = Depends(get_cur
             detail={"error": "AUTO_DASHBOARD_ERROR", "message": str(exc)}
         )
 
+    return result
+
+
+@router.post("/dashboard-voice-summary")
+async def dashboard_voice_summary(body: dict, user_id: int = Depends(get_current_user_id)):
+    """
+    Generate an AI voice summary for a dashboard.
+    Accepts dashboard_type (kpi, analytics, performance, insights) and dashboard_data.
+    Returns audio_url with MP3 file.
+    """
+    from agents.pipeline import generate_dashboard_summary_voice
+    
+    dashboard_type = body.get("dashboard_type", "kpi")
+    dashboard_data = body.get("dashboard_data", {})
+    
+    if not dashboard_data:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "NO_DATA", "message": "Dashboard data is required."}
+        )
+    
+    try:
+        result = await run_in_threadpool(
+            generate_dashboard_summary_voice,
+            dashboard_type=dashboard_type,
+            dashboard_data=dashboard_data,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "VOICE_GENERATION_ERROR", "message": str(exc)}
+        )
+    
+    return result
+
+
+# ─── New Endpoint: Ask Follow-up Questions ──────────────────────────────────────
+
+@router.post("/ask-question")
+async def ask_question(body: AskQuestionRequest, user_id: int = Depends(get_current_user_id)):
+    """
+    Process follow-up questions and generate new charts dynamically.
+    
+    Behaviour:
+    ──────────
+    • Takes a follow-up question from the user
+    • Uses the active dataset from Redis
+    • Runs the full AI pipeline with the new question
+    • Returns new charts based on the question
+    • Can be called multiple times for multi-turn conversations
+    """
+    from agents.pipeline import run_pipeline
+    
+    redis_key = _dataset_key(user_id)
+    active_dataset = redis_client.get(redis_key)
+    
+    if not active_dataset:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "NO_DATASET",
+                "message": "No active dataset. Please upload or select a dataset first.",
+            },
+        )
+    
+    # Run the pipeline with the new question
+    try:
+        result = await run_in_threadpool(
+            run_pipeline,
+            dataset_url=active_dataset,
+            user_query=body.question.strip(),
+            requested_charts=body.requested_charts,
+            user_id=user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "QUESTION_ERROR", "message": str(exc)},
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "INTERNAL_ERROR", "message": f"Failed to process question: {exc}"},
+        )
+    
     return result

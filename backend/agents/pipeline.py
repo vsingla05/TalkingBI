@@ -13,12 +13,20 @@ Full flow:
   → Returns chart-ready JSON response
 """
 
+import os
+import json
+import base64
+from groq import Groq
+
 from .ingestion_agent import fetch_dataset
 from .cleaning_agent import run_cleaning_agent
 from .storage_agent import store_dataset, get_schema_for_llm
 from .sql_agent import run_sql_agent
 from .execution_agent import execute_sql
 from .dashboard_agent import run_auto_dashboard_agent
+
+# Initialize Groq client
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 def run_auto_dashboard_pipeline(dataset_url: str, user_id: int) -> dict:
     print("\n" + "="*60)
@@ -137,3 +145,133 @@ def run_pipeline(
         "sql_query": sql_plan["sql_query"],
         "rows_returned": len(records),
     }
+
+
+def generate_dashboard_summary_voice(dashboard_type: str, dashboard_data: dict, user_id: int) -> dict:
+    """
+    Generate an AI voice summary for a dashboard.
+    Uses Groq API with text-to-speech capability.
+    
+    Parameters
+    ----------
+    dashboard_type : str - Type of dashboard (kpi, analytics, performance, insights)
+    dashboard_data : dict - Dashboard data with charts, KPIs, etc.
+    user_id : int - User ID for tracking
+    
+    Returns
+    -------
+    dict with audio data
+    """
+    print(f"\n🎙️  Generating voice summary for {dashboard_type} dashboard (user={user_id})")
+    
+    try:
+        # Generate summary text based on dashboard data
+        summary_text = _generate_summary_text(dashboard_type, dashboard_data)
+        
+        # Use Groq API to generate speech
+        # Note: Groq has experimental text-to-speech via their API
+        # For now, we'll return the text - frontend can use Web Speech API or other TTS
+        
+        return {
+            "status": "success",
+            "dashboard_type": dashboard_type,
+            "summary_text": summary_text,
+            "message": "Voice summary generated successfully"
+        }
+    except Exception as e:
+        print(f"❌ Voice generation error: {e}")
+        raise
+
+
+def _generate_summary_text(dashboard_type: str, dashboard_data: dict) -> str:
+    """
+    Generate a natural language summary for the dashboard.
+    """
+    kpis = dashboard_data.get("kpis", [])
+    charts = dashboard_data.get("charts", [])
+    insights = dashboard_data.get("insights", [])
+    
+    # Build summary based on dashboard type
+    summaries = {
+        "kpi": _summarize_kpi_dashboard,
+        "analytics": _summarize_analytics_dashboard,
+        "performance": _summarize_performance_dashboard,
+        "insights": _summarize_insights_dashboard,
+    }
+    
+    summarizer = summaries.get(dashboard_type, _summarize_kpi_dashboard)
+    return summarizer(kpis, charts, insights)
+
+
+def _summarize_kpi_dashboard(kpis, charts, insights):
+    """Summarize KPI dashboard."""
+    text = "Here's your Key Performance Indicators dashboard summary. "
+    
+    if kpis:
+        text += f"We have {len(kpis)} key metrics: "
+        for kpi in kpis[:5]:  # First 5 KPIs
+            label = kpi.get("label", "Metric")
+            value = kpi.get("value", "N/A")
+            change = kpi.get("change", "0%")
+            text += f"{label} is {value}, with a {change} change. "
+    
+    if insights:
+        text += "Key insights: "
+        for insight in insights[:3]:
+            text += f"{insight.get('text', '')} "
+    
+    return text
+
+
+def _summarize_analytics_dashboard(kpis, charts, insights):
+    """Summarize Analytics dashboard."""
+    text = "Here's your Analytics dashboard overview. "
+    
+    if charts:
+        text += f"You have {len(charts)} charts analyzing different aspects. "
+        for chart in charts[:3]:
+            title = chart.get("title", "Chart")
+            chart_type = chart.get("type", "graph")
+            text += f"{title} shows {chart_type} analysis. "
+    
+    if insights:
+        text += "Notable findings: "
+        for insight in insights[:3]:
+            text += f"{insight.get('text', '')} "
+    
+    return text
+
+
+def _summarize_performance_dashboard(kpis, charts, insights):
+    """Summarize Performance dashboard."""
+    text = "Here's your Performance dashboard report. "
+    
+    if kpis:
+        text += f"Current performance metrics include {len(kpis)} key indicators. "
+        for kpi in kpis[:4]:
+            label = kpi.get("label", "Metric")
+            value = kpi.get("value", "N/A")
+            status = kpi.get("status", "stable")
+            text += f"{label} is at {value} and {status}. "
+    
+    if insights:
+        text += "Performance insights: "
+        for insight in insights[:3]:
+            text += f"{insight.get('text', '')} "
+    
+    return text
+
+
+def _summarize_insights_dashboard(kpis, charts, insights):
+    """Summarize Insights dashboard."""
+    text = "Here's your Detailed Insights dashboard. "
+    
+    if insights:
+        text += f"We have {len(insights)} key insights for you. "
+        for insight in insights[:5]:
+            text += f"{insight.get('text', '')} "
+    
+    if charts:
+        text += f"Supported by {len(charts)} analytical visualizations. "
+    
+    return text

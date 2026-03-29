@@ -8,6 +8,7 @@ import QueryBox from "../components/QueryBox";
 import ChartSelector from "../components/ChartSelector";
 import ChartCard from "../components/ChartCard";
 import KPICard from "../components/KPICard";
+import DashboardView from "../components/DashboardView";
 
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -146,7 +147,7 @@ export default function Home() {
   const [isPlaying, setIsPlaying] = useState(false);
 
   // Top tabs
-  const [activeMode, setActiveMode] = useState("setup"); // setup | custom_view | auto_gallery | auto_detail
+  const [activeMode, setActiveMode] = useState("setup"); // setup | custom_view | auto_gallery | auto_detail | dashboard_view
 
   useEffect(() => {
     (async () => {
@@ -223,6 +224,11 @@ export default function Home() {
   const runCustomAnalysis = async () => {
     if (!query.trim() || selectedCharts.length === 0) return;
     setLoading(true); setAnalysisError(null);
+    
+    // Clear previous results before fetching new ones
+    setCustomResult(null);
+    setCustomKPIs([]);
+    
     try {
       const response = await api.post("/analyze", {
         dataset_link: datasetLink.trim() || null,
@@ -234,7 +240,8 @@ export default function Home() {
       const payload = response.data;
       setCustomResult(payload);
       setCustomKPIs(calculateKPIs(payload.data, payload.x_axis, payload.y_axis));
-      setActiveMode("custom_view");
+      // Go directly to beautiful dashboards view instead of custom charts view
+      setActiveMode("dashboard_view");
     } catch (err) {
       setAnalysisError(err.response?.data?.detail?.message || "Analysis failed.");
     } finally {
@@ -268,6 +275,16 @@ export default function Home() {
       setAutoKPIs(calculateKPIs(primaryChart.data, primaryChart.x_axis, primaryChart.y_axis));
     }
     setActiveMode("auto_detail");
+  };
+
+  // Open Premium Dashboards
+  const openPremiumDashboards = () => {
+    setActiveMode("dashboard_view");
+  };
+
+  // Exit Premium Dashboards
+  const exitDashboards = () => {
+    setActiveMode("setup");
   };
 
   // AI Voice Controls
@@ -346,13 +363,21 @@ export default function Home() {
                   <h2 className="text-2xl font-bold text-white flex items-center gap-3">
                     <Database className="text-[#6c63ff]" size={26} /> Data Connection
                   </h2>
-                  <button
-                    onClick={runAutoDashboard}
-                    disabled={!hasSession && !datasetLink}
-                    className="bg-gradient-to-r from-[#6c63ff] to-[#a78bfa] hover:from-[#5b52e3] hover:to-[#9176f5] text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-[0_0_15px_rgba(108,99,255,0.3)] transition-all disabled:opacity-50"
-                  >
-                    <Sparkles size={18} /> Generate 3 AI Dashboards
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={openPremiumDashboards}
+                      className="bg-gradient-to-r from-[#4caf8a] to-[#34d399] hover:from-[#3d9371] hover:to-[#2fc288] text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-[0_0_15px_rgba(76,175,138,0.3)] transition-all"
+                    >
+                      <LayoutDashboard size={18} /> 4 Premium Dashboards
+                    </button>
+                    <button
+                      onClick={runAutoDashboard}
+                      disabled={!hasSession && !datasetLink}
+                      className="bg-gradient-to-r from-[#6c63ff] to-[#a78bfa] hover:from-[#5b52e3] hover:to-[#9176f5] text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-[0_0_15px_rgba(108,99,255,0.3)] transition-all disabled:opacity-50"
+                    >
+                      <Sparkles size={18} /> Generate 3 AI Dashboards
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex flex-col gap-8">
@@ -528,6 +553,39 @@ export default function Home() {
                   ))}
                 </div>
 
+              </div>
+            )}
+
+            {/* STATE: Premium Dashboards */}
+            {activeMode === "dashboard_view" && !loading && customResult && (
+              <div className="animate-in fade-in slide-in-from-bottom-8 duration-500 pb-20">
+                {/* Answer Section */}
+                <div className="mb-12">
+                  <div className="bg-gradient-to-br from-[#1e2029] to-[#16181f] border border-[#2a2d3a] rounded-2xl p-8">
+                    <h2 className="text-2xl font-bold text-white mb-4">📊 Analysis Result</h2>
+                    <p className="text-[#8a8fa8] text-lg leading-relaxed mb-6">{customResult.title || "Query Analysis"}</p>
+                    <div className="flex items-center gap-2 text-[#4caf8a] text-sm font-medium">
+                      <Check size={18} />
+                      <span>{customResult.rows_returned} entities returned</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* KPIs Section */}
+                <div className="mb-12">
+                  <h3 className="text-xl font-bold text-white mb-6">Key Metrics</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {customKPIs.map((kpi, i) => (
+                      <KPICard key={i} title={kpi.title} value={kpi.value} subValue={kpi.subValue} icon={kpi.icon} colorClass={kpi.colorClass} trend={i===1 ? 8.4 : null} />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Dashboards Section */}
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-6">Interactive Dashboards</h3>
+                  <DashboardView charts={selectedCharts} datasetId={datasetLink} />
+                </div>
               </div>
             )}
 

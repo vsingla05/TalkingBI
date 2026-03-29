@@ -1,13 +1,25 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import json
 
 from routers import auth, dataset
 from database import Base, engine
+from json_utils import clean_for_json, NaNSafeEncoder
+from fastapi.responses import Response
 
 # Create all tables on startup
 Base.metadata.create_all(bind=engine)
 
+# ─── Custom JSON response to handle NaN/Inf ────────────────────────────────────
+class CustomJSONResponse(Response):
+    media_type = "application/json"
+    
+    def render(self, content):
+        content = clean_for_json(content)
+        return json.dumps(content, cls=NaNSafeEncoder).encode("utf-8")
+
 app = FastAPI(title="TalkingBI API", version="1.0.0")
+app.default_response_class = CustomJSONResponse
 
 # ─── CORS ──────────────────────────────────────────────────────────────────────
 # Allow the React dev server to communicate with this API

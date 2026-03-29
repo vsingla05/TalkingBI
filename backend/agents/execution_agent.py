@@ -42,6 +42,11 @@ def execute_sql(sql_query: str, max_rows: int = 200) -> list[dict]:
     result_df = result_df.where(result_df.notna(), other=None)
     for col in result_df.select_dtypes(include=["datetime64[ns]", "datetimetz"]).columns:
         result_df[col] = result_df[col].astype(str)
+    
+    # Replace inf and -inf with None (NaN-safe for JSON serialization)
+    import numpy as np
+    for col in result_df.select_dtypes(include=[np.number]).columns:
+        result_df[col] = result_df[col].replace([np.inf, -np.inf], None)
 
     records = result_df.head(max_rows).to_dict(orient="records")
     print(f"✅ SQL execution returned {len(records)} rows")

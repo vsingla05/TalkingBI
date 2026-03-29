@@ -40,3 +40,8 @@ class AnalyzeRequest(BaseModel):
     dataset_link: str | None = None
     query: str
     requested_charts: list[str]
+
+
+class AskQuestionRequest(BaseModel):
+    question: str
+    requested_charts: list[str] = ["bar", "line", "pie"]
