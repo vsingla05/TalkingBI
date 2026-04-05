@@ -6,7 +6,6 @@ from routers import auth, dataset
 from database import Base, engine
 from json_utils import clean_for_json, NaNSafeEncoder
 from fastapi.responses import Response
-
 # Create all tables on startup
 Base.metadata.create_all(bind=engine)
 

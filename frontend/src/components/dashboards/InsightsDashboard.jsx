@@ -1,17 +1,19 @@
 import React, { useState, useRef, useEffect } from "react";
 import { LineChart, Line, BarChart, Bar, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Area } from "recharts";
-import { Loader, Play, Square, TrendingUp } from "lucide-react";
+import { Loader, Play, Square, Pause, TrendingUp } from "lucide-react";
 
 const COLORS = ["#e91e63", "#ff5e5e", "#4caf8a", "#6c63ff"];
 
-export default function InsightsDashboard({ charts, onVoiceSummary, isPlayingAudio = false, onStopAudio }) {
+export default function InsightsDashboard({ charts, onVoiceSummary, isPlayingAudio = false, isPausedAudio = false, onStopAudio, onPauseAudio, onResumeAudio }) {
   const [isGeneratingVoice, setIsGeneratingVoice] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
 
-  // Sync isPlaying with parent isPlayingAudio prop
+  // Sync isPlaying and isPaused with parent props
   useEffect(() => {
     setIsPlaying(isPlayingAudio);
-  }, [isPlayingAudio]);
+    setIsPaused(isPausedAudio);
+  }, [isPlayingAudio, isPausedAudio]);
 
   // Mock data
   const anomalyData = [
@@ -68,11 +70,14 @@ export default function InsightsDashboard({ charts, onVoiceSummary, isPlayingAud
   };
 
   const toggleVoiceSummary = () => {
-    if (isPlaying) {
-      window.speechSynthesis.cancel();
-      setIsPlaying(false);
-      if (onStopAudio) onStopAudio();
+    if (isPlaying && !isPaused) {
+      // Currently playing -> pause
+      if (onPauseAudio) onPauseAudio();
+    } else if (isPaused) {
+      // Currently paused -> resume
+      if (onResumeAudio) onResumeAudio();
     } else {
+      // Not playing -> start
       handleVoiceSummary();
     }
   };
@@ -91,7 +96,9 @@ export default function InsightsDashboard({ charts, onVoiceSummary, isPlayingAud
             disabled={isGeneratingVoice}
             className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${
               isPlaying
-                ? "bg-[#ff5e5e] hover:bg-[#ff4040]"
+                ? "bg-[#ff9800] hover:bg-[#ff8800]"
+                : isPaused
+                ? "bg-[#4caf8a] hover:bg-[#45a080]"
                 : "bg-gradient-to-r from-[#e91e63] to-[#ff5e5e] hover:shadow-lg hover:shadow-[#e91e63]/30"
             } text-white disabled:opacity-50`}
           >
@@ -102,8 +109,13 @@ export default function InsightsDashboard({ charts, onVoiceSummary, isPlayingAud
               </>
             ) : isPlaying ? (
               <>
-                <Square size={18} />
-                Stop
+                <Pause size={18} />
+                Pause
+              </>
+            ) : isPaused ? (
+              <>
+                <Play size={18} />
+                Resume
               </>
             ) : (
               <>
@@ -111,6 +123,19 @@ export default function InsightsDashboard({ charts, onVoiceSummary, isPlayingAud
                 Hear Summary
               </>
             )}
+          </button>
+          <button
+            onClick={() => {
+              window.speechSynthesis.cancel();
+              setIsPlaying(false);
+              setIsPaused(false);
+              if (onStopAudio) onStopAudio();
+            }}
+            disabled={!isPlaying && !isPaused}
+            className="flex items-center gap-2 px-4 py-3 rounded-xl font-semibold transition-all bg-[#2a2d3a] hover:bg-[#ff5e5e] text-white disabled:opacity-30"
+          >
+            <Square size={18} />
+            Stop
           </button>
         </div>
       </div>

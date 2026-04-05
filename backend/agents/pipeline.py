@@ -24,6 +24,7 @@ from .storage_agent import store_dataset, get_schema_for_llm
 from .sql_agent import run_sql_agent
 from .execution_agent import execute_sql
 from .dashboard_agent import run_auto_dashboard_agent
+from .dynamic_dashboard_agent import generate_four_dashboards_complete
 
 # Initialize Groq client
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -130,21 +131,48 @@ def run_pipeline(
     print("\n[STEP 6] Executing generated SQL...")
     records = execute_sql(sql_plan["sql_query"])
 
+    # ── STEP 7: Generate Dynamic Dashboards (LLM) ─────────────────
+    print("\n[STEP 7] Generating 4 dynamic dashboards based on query results...")
+    try:
+        dashboards_with_data = generate_four_dashboards_complete(
+            user_query=user_query,
+            table_schema=schema,
+            sample_data=sample_csv,
+            sql_results=records,
+        )
+        
+        print(f"✅ 4 Dynamic dashboards generated")
+        
+    except Exception as e:
+        print(f"⚠️  Dynamic dashboards generation failed: {e}")
+        # Fallback to simple chart response if dashboard generation fails
+        dashboards_with_data = None
+
     chart_map = sql_plan.get("chart_mapping", {})
 
     print("\n" + "="*60)
     print(f"✅ PIPELINE COMPLETE  |  {len(records)} rows returned")
     print("="*60 + "\n")
 
-    return {
-        "data": records,
-        "chart_type": chart_map.get("chart_type", requested_charts[0] if requested_charts else "bar"),
-        "x_axis": chart_map.get("x_axis", ""),
-        "y_axis": chart_map.get("y_axis", ""),
-        "title": chart_map.get("title", user_query),
-        "sql_query": sql_plan["sql_query"],
-        "rows_returned": len(records),
-    }
+    # Return 4 dynamic dashboards if available, otherwise fallback to single chart
+    if dashboards_with_data:
+        return {
+            "type": "dynamic_dashboards",
+            "dashboards": dashboards_with_data,
+            "sql_query": sql_plan["sql_query"],
+            "rows_returned": len(records),
+        }
+    else:
+        return {
+            "type": "simple_chart",
+            "data": records,
+            "chart_type": chart_map.get("chart_type", requested_charts[0] if requested_charts else "bar"),
+            "x_axis": chart_map.get("x_axis", ""),
+            "y_axis": chart_map.get("y_axis", ""),
+            "title": chart_map.get("title", user_query),
+            "sql_query": sql_plan["sql_query"],
+            "rows_returned": len(records),
+        }
 
 
 def generate_dashboard_summary_voice(dashboard_type: str, dashboard_data: dict, user_id: int) -> dict:

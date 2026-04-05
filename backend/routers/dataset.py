@@ -1,6 +1,7 @@
 import os
 import time
 import shutil
+import traceback
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.concurrency import run_in_threadpool
 
@@ -133,11 +134,15 @@ async def analyze(body: AnalyzeRequest, user_id: int = Depends(get_current_user_
         )
     except ValueError as exc:
         # Anticipated errors (bad URL, bad SQL, empty result, etc.)
+        print("[analyze] Pipeline ValueError:", exc)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"error": "PIPELINE_ERROR", "message": str(exc)},
         )
     except Exception as exc:
+        # Log full traceback for debugging, then return 500
+        print("[analyze] Pipeline unexpected exception:")
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "INTERNAL_ERROR", "message": f"Pipeline failed: {exc}"},
@@ -174,6 +179,8 @@ async def auto_dashboard(body: SetDatasetRequest, user_id: int = Depends(get_cur
             user_id=user_id,
         )
     except Exception as exc:
+        print("[auto_dashboard] unexpected exception:")
+        traceback.print_exc()
         raise HTTPException(
             status_code=500,
             detail={"error": "AUTO_DASHBOARD_ERROR", "message": str(exc)}
@@ -255,11 +262,14 @@ async def ask_question(body: AskQuestionRequest, user_id: int = Depends(get_curr
             user_id=user_id,
         )
     except ValueError as exc:
+        print("[ask_question] Pipeline ValueError:", exc)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"error": "QUESTION_ERROR", "message": str(exc)},
         )
     except Exception as exc:
+        print("[ask_question] unexpected exception:")
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "INTERNAL_ERROR", "message": f"Failed to process question: {exc}"},

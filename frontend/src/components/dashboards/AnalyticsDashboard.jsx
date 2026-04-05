@@ -1,18 +1,20 @@
 import React, { useState, useRef, useEffect } from "react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Area, AreaChart, PieChart, Pie, Cell } from "recharts";
-import { Loader, Filter, Play, Square } from "lucide-react";
+import { Loader, Filter, Play, Square, Pause } from "lucide-react";
 
 const COLORS = ["#6c63ff", "#4caf8a", "#ff9800", "#e91e63", "#00bcd4", "#a78bfa", "#34d399"];
 
-export default function AnalyticsDashboard({ charts, onVoiceSummary, isPlayingAudio = false, onStopAudio }) {
+export default function AnalyticsDashboard({ charts, onVoiceSummary, isPlayingAudio = false, isPausedAudio = false, onStopAudio, onPauseAudio, onResumeAudio }) {
   const [isGeneratingVoice, setIsGeneratingVoice] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [selectedMetric, setSelectedMetric] = useState("all");
 
-  // Sync isPlaying with parent isPlayingAudio prop
+  // Sync isPlaying and isPaused with parent props
   useEffect(() => {
     setIsPlaying(isPlayingAudio);
-  }, [isPlayingAudio]);
+    setIsPaused(isPausedAudio);
+  }, [isPlayingAudio, isPausedAudio]);
 
   const metrics = ["Revenue", "Users", "Engagement", "Conversion", "Retention"];
 
@@ -63,11 +65,14 @@ export default function AnalyticsDashboard({ charts, onVoiceSummary, isPlayingAu
   };
 
   const toggleVoiceSummary = () => {
-    if (isPlaying) {
-      window.speechSynthesis.cancel();
-      setIsPlaying(false);
-      if (onStopAudio) onStopAudio();
+    if (isPlaying && !isPaused) {
+      // Currently playing -> pause
+      if (onPauseAudio) onPauseAudio();
+    } else if (isPaused) {
+      // Currently paused -> resume
+      if (onResumeAudio) onResumeAudio();
     } else {
+      // Not playing -> start
       handleVoiceSummary();
     }
   };
@@ -86,7 +91,9 @@ export default function AnalyticsDashboard({ charts, onVoiceSummary, isPlayingAu
             disabled={isGeneratingVoice}
             className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${
               isPlaying
-                ? "bg-[#ff5e5e] hover:bg-[#ff4040]"
+                ? "bg-[#ff9800] hover:bg-[#ff8800]"
+                : isPaused
+                ? "bg-[#4caf8a] hover:bg-[#45a080]"
                 : "bg-gradient-to-r from-[#00bcd4] to-[#4caf8a] hover:shadow-lg hover:shadow-[#00bcd4]/30"
             } text-white disabled:opacity-50`}
           >
@@ -97,8 +104,13 @@ export default function AnalyticsDashboard({ charts, onVoiceSummary, isPlayingAu
               </>
             ) : isPlaying ? (
               <>
-                <Square size={18} />
-                Stop
+                <Pause size={18} />
+                Pause
+              </>
+            ) : isPaused ? (
+              <>
+                <Play size={18} />
+                Resume
               </>
             ) : (
               <>
@@ -106,6 +118,19 @@ export default function AnalyticsDashboard({ charts, onVoiceSummary, isPlayingAu
                 Hear Summary
               </>
             )}
+          </button>
+          <button
+            onClick={() => {
+              window.speechSynthesis.cancel();
+              setIsPlaying(false);
+              setIsPaused(false);
+              if (onStopAudio) onStopAudio();
+            }}
+            disabled={!isPlaying && !isPaused}
+            className="flex items-center gap-2 px-4 py-3 rounded-xl font-semibold transition-all bg-[#2a2d3a] hover:bg-[#ff5e5e] text-white disabled:opacity-30"
+          >
+            <Square size={18} />
+            Stop
           </button>
         </div>
       </div>

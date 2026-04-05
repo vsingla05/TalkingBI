@@ -138,6 +138,9 @@ export default function Home() {
   const [customResult, setCustomResult] = useState(null);
   const [customKPIs, setCustomKPIs] = useState([]);
 
+  // States for Dynamic Dashboards (4 dashboards)
+  const [dynamicDashboards, setDynamicDashboards] = useState(null);
+
   // States for Auto Dashboards
   const [autoResult, setAutoResult] = useState(null);
   const [activeDashboard, setActiveDashboard] = useState(null);
@@ -228,6 +231,7 @@ export default function Home() {
     // Clear previous results before fetching new ones
     setCustomResult(null);
     setCustomKPIs([]);
+    setDynamicDashboards(null);
     
     try {
       const response = await api.post("/analyze", {
@@ -238,10 +242,18 @@ export default function Home() {
       if (response.data.dataset_id) setHasSession(true);
       
       const payload = response.data;
-      setCustomResult(payload);
-      setCustomKPIs(calculateKPIs(payload.data, payload.x_axis, payload.y_axis));
-      // Go directly to beautiful dashboards view instead of custom charts view
-      setActiveMode("dashboard_view");
+      
+      // Check if response contains 4 dynamic dashboards
+      if (payload.type === "dynamic_dashboards" && payload.dashboards) {
+        console.log("4 Dynamic dashboards received:", payload.dashboards);
+        setDynamicDashboards(payload.dashboards);
+        setActiveMode("dashboard_view");
+      } else {
+        // Fallback to simple chart
+        setCustomResult(payload);
+        setCustomKPIs(calculateKPIs(payload.data, payload.x_axis, payload.y_axis));
+        setActiveMode("dashboard_view");
+      }
     } catch (err) {
       setAnalysisError(err.response?.data?.detail?.message || "Analysis failed.");
     } finally {
@@ -557,35 +569,48 @@ export default function Home() {
             )}
 
             {/* STATE: Premium Dashboards */}
-            {activeMode === "dashboard_view" && !loading && customResult && (
+            {activeMode === "dashboard_view" && !loading && (customResult || dynamicDashboards) && (
               <div className="animate-in fade-in slide-in-from-bottom-8 duration-500 pb-20">
-                {/* Answer Section */}
-                <div className="mb-12">
-                  <div className="bg-gradient-to-br from-[#1e2029] to-[#16181f] border border-[#2a2d3a] rounded-2xl p-8">
-                    <h2 className="text-2xl font-bold text-white mb-4">📊 Analysis Result</h2>
-                    <p className="text-[#8a8fa8] text-lg leading-relaxed mb-6">{customResult.title || "Query Analysis"}</p>
-                    <div className="flex items-center gap-2 text-[#4caf8a] text-sm font-medium">
-                      <Check size={18} />
-                      <span>{customResult.rows_returned} entities returned</span>
+                {/* Show 4 dynamic dashboards if available, otherwise show traditional layout */}
+                {dynamicDashboards ? (
+                  <>
+                    <DashboardView 
+                      charts={selectedCharts} 
+                      datasetId={datasetLink}
+                      dynamicDashboards={dynamicDashboards}
+                    />
+                  </>
+                ) : (
+                  <>
+                    {/* Answer Section */}
+                    <div className="mb-12">
+                      <div className="bg-gradient-to-br from-[#1e2029] to-[#16181f] border border-[#2a2d3a] rounded-2xl p-8">
+                        <h2 className="text-2xl font-bold text-white mb-4">📊 Analysis Result</h2>
+                        <p className="text-[#8a8fa8] text-lg leading-relaxed mb-6">{customResult.title || "Query Analysis"}</p>
+                        <div className="flex items-center gap-2 text-[#4caf8a] text-sm font-medium">
+                          <Check size={18} />
+                          <span>{customResult.rows_returned} entities returned</span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
 
-                {/* KPIs Section */}
-                <div className="mb-12">
-                  <h3 className="text-xl font-bold text-white mb-6">Key Metrics</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {customKPIs.map((kpi, i) => (
-                      <KPICard key={i} title={kpi.title} value={kpi.value} subValue={kpi.subValue} icon={kpi.icon} colorClass={kpi.colorClass} trend={i===1 ? 8.4 : null} />
-                    ))}
-                  </div>
-                </div>
+                    {/* KPIs Section */}
+                    <div className="mb-12">
+                      <h3 className="text-xl font-bold text-white mb-6">Key Metrics</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                        {customKPIs.map((kpi, i) => (
+                          <KPICard key={i} title={kpi.title} value={kpi.value} subValue={kpi.subValue} icon={kpi.icon} colorClass={kpi.colorClass} trend={i===1 ? 8.4 : null} />
+                        ))}
+                      </div>
+                    </div>
 
-                {/* Dashboards Section */}
-                <div>
-                  <h3 className="text-xl font-bold text-white mb-6">Interactive Dashboards</h3>
-                  <DashboardView charts={selectedCharts} datasetId={datasetLink} />
-                </div>
+                    {/* Dashboards Section */}
+                    <div>
+                      <h3 className="text-xl font-bold text-white mb-6">Interactive Dashboards</h3>
+                      <DashboardView charts={selectedCharts} datasetId={datasetLink} />
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

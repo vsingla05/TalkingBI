@@ -29,6 +29,8 @@ LLM JSON Contract:
 
 import json
 import re
+import time
+import traceback
 import pandas as pd
 from groq import Groq
 from config import GROQ_API_KEY, LLM_MODEL
@@ -126,7 +128,9 @@ def _execute_cleaning_steps(df: pd.DataFrame, steps: list[dict]) -> pd.DataFrame
                     elif to_type == "str":
                         df[col] = df[col].astype(str)
                     elif to_type == "datetime":
-                        df[col] = pd.to_datetime(df[col], errors="coerce", infer_datetime_format=True)
+                        # Some pandas versions no longer accept infer_datetime_format kw
+                        # Use a simpler call that is broadly compatible
+                        df[col] = pd.to_datetime(df[col], errors="coerce")
                     print(f"  🔁 convert_type: '{col}' → {to_type}")
 
             elif action == "normalize_column_name":
@@ -199,15 +203,27 @@ def run_cleaning_agent(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     client = Groq(api_key=GROQ_API_KEY)
 
     print("\n🤖 Cleaning Agent → Calling LLM for cleaning plan...")
-    response = client.chat.completions.create(
-        model=LLM_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1,
-        max_tokens=2048,
-    )
-
-    raw_output = response.choices[0].message.content
-    print(f"📋 Raw LLM output:\n{raw_output}\n")
+    # Retry LLM call a couple times in case of transient errors
+    raw_output = None
+    attempts = 2
+    for attempt in range(1, attempts + 1):
+        try:
+            response = client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=2048,
+            )
+            raw_output = response.choices[0].message.content
+            print(f"📋 Raw LLM output:\n{raw_output}\n")
+            break
+        except Exception as exc:
+            print(f"[run_cleaning_agent] LLM call failed (attempt {attempt}/{attempts}): {exc}")
+            traceback.print_exc()
+            if attempt < attempts:
+                time.sleep(1)
+                continue
+            raise ValueError(f"LLM_CALL_FAILED: {exc}")
 
     try:
         plan = _parse_llm_json(raw_output)

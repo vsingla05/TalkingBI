@@ -38,7 +38,19 @@ def fetch_dataset(dataset_url: str, timeout: int = 30) -> pd.DataFrame:
         if not os.path.exists(file_path):
             raise ValueError(f"Local uploaded file not found: {file_path}")
         try:
-            df = pd.read_csv(file_path)
+            # Try UTF-8 first, then fall back to latin-1 and iso-8859-1
+            encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+            df = None
+            for encoding in encodings:
+                try:
+                    df = pd.read_csv(file_path, encoding=encoding)
+                    break
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+            
+            if df is None:
+                raise ValueError("Could not decode file with any supported encoding")
+            
             if df.empty:
                 raise ValueError("Uploaded dataset is empty (0 rows after parsing).")
             print(f"✅ Ingested dataset: {df.shape[0]} rows × {df.shape[1]} cols from local file")
