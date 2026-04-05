@@ -16,6 +16,7 @@ Full flow:
 import os
 import json
 import base64
+import math
 from groq import Groq
 
 from .ingestion_agent import fetch_dataset
@@ -25,9 +26,37 @@ from .sql_agent import run_sql_agent
 from .execution_agent import execute_sql
 from .dashboard_agent import run_auto_dashboard_agent
 from .dynamic_dashboard_agent import generate_four_dashboards_complete
+from .comparison_agent import run_comparison_agent
 
 # Initialize Groq client
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+
+def sanitize_value(value):
+    """Convert NaN, None, and invalid values to 0."""
+    if value is None:
+        return 0
+    
+    try:
+        num = float(value)
+        # Check for NaN or infinity
+        if math.isnan(num) or math.isinf(num):
+            return 0
+        return num
+    except (ValueError, TypeError):
+        return 0
+
+
+def sanitize_dict(obj):
+    """Recursively sanitize dictionary to remove NaN values."""
+    if isinstance(obj, dict):
+        return {key: sanitize_dict(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_dict(item) for item in obj]
+    elif isinstance(obj, float):
+        return sanitize_value(obj)
+    else:
+        return obj
 
 def run_auto_dashboard_pipeline(dataset_url: str, user_id: int) -> dict:
     print("\n" + "="*60)
@@ -62,7 +91,61 @@ def run_auto_dashboard_pipeline(dataset_url: str, user_id: int) -> dict:
     print(f"✅ AUTO-DASHBOARD PIPELINE COMPLETE")
     print("="*60 + "\n")
 
-    return json_spec
+    return sanitize_dict(json_spec)
+
+
+def run_auto_comparison_pipeline(dataset_url: str, user_id: int) -> dict:
+    """
+    Auto-generate all relevant comparisons, metrics, and relationships 
+    based on dataset schema analysis.
+    
+    Returns comparison cards and charts for all numeric/categorical field combinations.
+    """
+    print("\n" + "="*60)
+    print(f"🔍 AUTO-COMPARISON PIPELINE START | user={user_id}")
+    print("="*60)
+    
+    try:
+        # 1/2/3. Fetch, Clean, Store
+        print("\n[STEP 1-3] Ingesting & Storing...")
+        df_raw = fetch_dataset(dataset_url)
+        df_clean, cleaning_plan = run_cleaning_agent(df_raw)
+        table_name = store_dataset(df_clean, user_id)
+        schema, sample_csv = get_schema_for_llm(user_id)
+        
+        # 4. Run Comparison Agent
+        print("\n[STEP 4] Running Comparison Agent...")
+        comparisons = run_comparison_agent(
+            table_name=table_name,
+            schema=schema,
+            sample_csv=sample_csv,
+            execute_sql_func=execute_sql
+        )
+        
+        print("\n" + "="*60)
+        print(f"✅ AUTO-COMPARISON PIPELINE COMPLETE")
+        print(f"   Generated {len(comparisons.get('cards', []))} comparison cards")
+        print("="*60 + "\n")
+        
+        return {
+            "type": "comparisons",
+            "comparisons": comparisons.get("comparisons", []),
+            "cards": comparisons.get("cards", []),
+            "field_analysis": comparisons.get("field_analysis", {}),
+            "rows_analyzed": len(df_clean)
+        }
+    
+    except Exception as e:
+        print(f"❌ Auto-Comparison Pipeline Failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "type": "comparisons",
+            "comparisons": [],
+            "cards": [],
+            "field_analysis": {},
+            "error": str(e)
+        }
 
 def run_pipeline(
     dataset_url: str,
@@ -156,14 +239,15 @@ def run_pipeline(
 
     # Return 4 dynamic dashboards if available, otherwise fallback to single chart
     if dashboards_with_data:
-        return {
+        response = {
             "type": "dynamic_dashboards",
             "dashboards": dashboards_with_data,
             "sql_query": sql_plan["sql_query"],
             "rows_returned": len(records),
         }
+        return sanitize_dict(response)
     else:
-        return {
+        response = {
             "type": "simple_chart",
             "data": records,
             "chart_type": chart_map.get("chart_type", requested_charts[0] if requested_charts else "bar"),
@@ -173,6 +257,7 @@ def run_pipeline(
             "sql_query": sql_plan["sql_query"],
             "rows_returned": len(records),
         }
+        return sanitize_dict(response)
 
 
 def generate_dashboard_summary_voice(dashboard_type: str, dashboard_data: dict, user_id: int) -> dict:

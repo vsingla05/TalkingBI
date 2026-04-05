@@ -9,6 +9,7 @@ import ChartSelector from "../components/ChartSelector";
 import ChartCard from "../components/ChartCard";
 import KPICard from "../components/KPICard";
 import DashboardView from "../components/DashboardView";
+import ComparisonDashboard from "../components/ComparisonDashboard";
 
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -146,11 +147,15 @@ export default function Home() {
   const [activeDashboard, setActiveDashboard] = useState(null);
   const [autoKPIs, setAutoKPIs] = useState([]);
 
+  // States for Comparisons
+  const [comparisons, setComparisons] = useState(null);
+  const [loadingComparisons, setLoadingComparisons] = useState(false);
+
   // Voice AI State
   const [isPlaying, setIsPlaying] = useState(false);
 
   // Top tabs
-  const [activeMode, setActiveMode] = useState("setup"); // setup | custom_view | auto_gallery | auto_detail | dashboard_view
+  const [activeMode, setActiveMode] = useState("setup"); // setup | custom_view | auto_gallery | auto_detail | dashboard_view | comparisons
 
   useEffect(() => {
     (async () => {
@@ -294,6 +299,29 @@ export default function Home() {
     setActiveMode("dashboard_view");
   };
 
+  // 3: Generate Smart Comparisons
+  const generateComparisons = async () => {
+    setLoadingComparisons(true);
+    setAnalysisError(null);
+    
+    try {
+      const response = await api.post("/generate-comparisons");
+      console.log("Comparisons generated:", response.data);
+      
+      if (response.data.cards) {
+        setComparisons(response.data.cards);
+        setActiveMode("comparisons");
+      } else {
+        setAnalysisError("No comparisons data received");
+      }
+    } catch (err) {
+      setAnalysisError(err.response?.data?.detail?.message || "Failed to generate comparisons.");
+      console.error("Comparison error:", err);
+    } finally {
+      setLoadingComparisons(false);
+    }
+  };
+
   // Exit Premium Dashboards
   const exitDashboards = () => {
     setActiveMode("setup");
@@ -388,6 +416,13 @@ export default function Home() {
                       className="bg-gradient-to-r from-[#6c63ff] to-[#a78bfa] hover:from-[#5b52e3] hover:to-[#9176f5] text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-[0_0_15px_rgba(108,99,255,0.3)] transition-all disabled:opacity-50"
                     >
                       <Sparkles size={18} /> Generate 3 AI Dashboards
+                    </button>
+                    <button
+                      onClick={generateComparisons}
+                      disabled={!hasSession && !datasetLink}
+                      className="bg-gradient-to-r from-[#ff9800] to-[#ffb74d] hover:from-[#f08700] hover:to-[#ffa63d] text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-[0_0_15px_rgba(255,152,0,0.3)] transition-all disabled:opacity-50"
+                    >
+                      <BarChart2 size={18} /> Smart Comparisons
                     </button>
                   </div>
                 </div>
@@ -611,6 +646,13 @@ export default function Home() {
                     </div>
                   </>
                 )}
+              </div>
+            )}
+
+            {/* STATE: Smart Comparisons */}
+            {activeMode === "comparisons" && !loadingComparisons && comparisons && (
+              <div className="animate-in fade-in slide-in-from-bottom-8 duration-500 pb-20">
+                <ComparisonDashboard comparisons={comparisons} />
               </div>
             )}
 

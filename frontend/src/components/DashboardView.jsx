@@ -8,6 +8,7 @@ import AnalyticsDashboard from "./dashboards/AnalyticsDashboard";
 import PerformanceDashboard from "./dashboards/PerformanceDashboard";
 import InsightsDashboard from "./dashboards/InsightsDashboard";
 import FollowUpQuestionBox from "./FollowUpQuestionBox";
+import ChartRenderer from "./ChartRenderer";
 
 export default function DashboardView({ charts = [], datasetId, dynamicDashboards = null }) {
   const [selectedDashboard, setSelectedDashboard] = useState(null);
@@ -203,6 +204,12 @@ export default function DashboardView({ charts = [], datasetId, dynamicDashboard
           <div className="px-6 py-6 bg-[#0e0f14] border-t border-[#2a2d3a]">
             <FollowUpQuestionBox datasetId={datasetId} onQuestionAnswered={handleQuestionAnswered} />
           </div>
+          {dynamicChartData && (
+            <div className="px-6 py-6 bg-[#0e0f14] border-t border-[#2a2d3a]">
+              <h3 className="text-xl font-bold text-white mb-4">{dynamicChartTitle}</h3>
+              <ChartRenderer chartData={dynamicChartData} />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -225,6 +232,12 @@ export default function DashboardView({ charts = [], datasetId, dynamicDashboard
           <div className="px-6 py-6 bg-[#0e0f14] border-t border-[#2a2d3a]">
             <FollowUpQuestionBox datasetId={datasetId} onQuestionAnswered={handleQuestionAnswered} />
           </div>
+          {dynamicChartData && (
+            <div className="px-6 py-6 bg-[#0e0f14] border-t border-[#2a2d3a]">
+              <h3 className="text-xl font-bold text-white mb-4">{dynamicChartTitle}</h3>
+              <ChartRenderer chartData={dynamicChartData} />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -247,6 +260,12 @@ export default function DashboardView({ charts = [], datasetId, dynamicDashboard
           <div className="px-6 py-6 bg-[#0e0f14] border-t border-[#2a2d3a]">
             <FollowUpQuestionBox datasetId={datasetId} onQuestionAnswered={handleQuestionAnswered} />
           </div>
+          {dynamicChartData && (
+            <div className="px-6 py-6 bg-[#0e0f14] border-t border-[#2a2d3a]">
+              <h3 className="text-xl font-bold text-white mb-4">{dynamicChartTitle}</h3>
+              <ChartRenderer chartData={dynamicChartData} />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -269,6 +288,12 @@ export default function DashboardView({ charts = [], datasetId, dynamicDashboard
           <div className="px-6 py-6 bg-[#0e0f14] border-t border-[#2a2d3a]">
             <FollowUpQuestionBox datasetId={datasetId} onQuestionAnswered={handleQuestionAnswered} />
           </div>
+          {dynamicChartData && (
+            <div className="px-6 py-6 bg-[#0e0f14] border-t border-[#2a2d3a]">
+              <h3 className="text-xl font-bold text-white mb-4">{dynamicChartTitle}</h3>
+              <ChartRenderer chartData={dynamicChartData} />
+            </div>
+          )}
         </div>
       </div>
     );

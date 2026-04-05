@@ -17,8 +17,36 @@ import json
 import re
 import time
 import traceback
+import math
 from groq import Groq
 from config import GROQ_API_KEY, LLM_MODEL
+
+
+def sanitize_value(value):
+    """Convert NaN, None, and invalid values to 0."""
+    if value is None:
+        return 0
+    
+    try:
+        num = float(value)
+        # Check for NaN or infinity
+        if math.isnan(num) or math.isinf(num):
+            return 0
+        return num
+    except (ValueError, TypeError):
+        return 0
+
+
+def sanitize_dict(obj):
+    """Recursively sanitize dictionary to remove NaN values."""
+    if isinstance(obj, dict):
+        return {key: sanitize_dict(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_dict(item) for item in obj]
+    elif isinstance(obj, float):
+        return sanitize_value(obj)
+    else:
+        return obj
 
 
 def _build_four_dashboards_prompt(
@@ -408,4 +436,7 @@ def generate_four_dashboards_complete(
         print(f"     KPIs: {len(dashboard.get('kpis', []))}, Charts: {len(dashboard.get('charts', []))}")
         print(f"     KPI Values: {[kpi.get('value') for kpi in dashboard.get('kpis', [])]}")
     
-    return enriched_dashboards
+    # Sanitize all data to remove NaN values before returning
+    sanitized_dashboards = sanitize_dict(enriched_dashboards)
+    
+    return sanitized_dashboards

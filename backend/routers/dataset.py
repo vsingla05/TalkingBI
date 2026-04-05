@@ -276,3 +276,45 @@ async def ask_question(body: AskQuestionRequest, user_id: int = Depends(get_curr
         )
     
     return result
+
+
+@router.post("/generate-comparisons")
+async def generate_comparisons(user_id: int = Depends(get_current_user_id)):
+    """
+    Auto-generate all relevant comparisons, metrics, and relationships
+    based on the active dataset's schema.
+    
+    Analyzes numeric and categorical fields to create intelligent visualizations.
+    """
+    print(f"[generate_comparisons] user={user_id}")
+    
+    # Check for active dataset
+    active_dataset = redis_client.get(_dataset_key(user_id))
+    if not active_dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "NO_DATASET",
+                "message": "No active dataset. Please upload or select a dataset first.",
+            },
+        )
+    
+    # Import here to avoid circular dependency
+    from agents.pipeline import run_auto_comparison_pipeline
+    
+    # Run the comparison agent
+    try:
+        result = await run_in_threadpool(
+            run_auto_comparison_pipeline,
+            dataset_url=active_dataset,
+            user_id=user_id,
+        )
+        return result
+    
+    except Exception as exc:
+        print("[generate_comparisons] unexpected exception:")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "INTERNAL_ERROR", "message": f"Failed to generate comparisons: {exc}"},
+        )
