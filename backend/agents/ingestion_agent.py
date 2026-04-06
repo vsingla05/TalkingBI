@@ -58,8 +58,79 @@ def fetch_dataset(dataset_url: str, timeout: int = 30) -> pd.DataFrame:
         except Exception as e:
             raise ValueError(f"Failed to parse CSV content: {e}")
 
+    if dataset_url.startswith(("postgresql://", "postgres://", "mysql://", "mysql+pymysql://", "sqlite://", "mssql+pyodbc://")):
+        from sqlalchemy import create_engine, inspect
+        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+        
+        parsed_url = urlparse(dataset_url)
+        query_params = parse_qs(parsed_url.query)
+        table_name = query_params.get("table", [None])[0]
+        
+        if "table" in query_params:
+            del query_params["table"]
+        
+        new_query = urlencode(query_params, doseq=True)
+        new_url_parts = list(parsed_url)
+        new_url_parts[4] = new_query
+        clean_url = urlunparse(new_url_parts)
+        
+        try:
+            engine = create_engine(clean_url)
+            if not table_name:
+                inspector = inspect(engine)
+                tables = inspector.get_table_names()
+                if not tables:
+                    raise ValueError("No tables found in the database.")
+                table_name = tables[0]
+                print(f"No table specified, defaulting to first table found: {table_name}")
+            
+            df = pd.read_sql_table(table_name, engine)
+            if df.empty:
+                raise ValueError(f"Table '{table_name}' is empty.")
+                
+            print(f"✅ Ingested database: {df.shape[0]} rows × {df.shape[1]} cols from {parsed_url.scheme} (table: {table_name})")
+            return df
+        except Exception as e:
+            raise ValueError(f"Failed to fetch data from database: {e}")
+
+    if dataset_url.startswith(("mongodb://", "mongodb+srv://")):
+        import pymongo
+        from urllib.parse import urlparse, parse_qs
+        
+        parsed_url = urlparse(dataset_url)
+        query_params = parse_qs(parsed_url.query)
+        collection_name = query_params.get("collection", [None])[0]
+        
+        try:
+            client = pymongo.MongoClient(dataset_url)
+            db_name = parsed_url.path.strip("/")
+            if not db_name:
+                raise ValueError("Database name is required in the MongoDB URI (e.g. mongodb://host/dbname)")
+                
+            db = client[db_name]
+            
+            if not collection_name:
+                collections = db.list_collection_names()
+                if not collections:
+                    raise ValueError(f"No collections found in database '{db_name}'.")
+                collection_name = collections[0]
+                print(f"No collection specified, defaulting to first collection found: {collection_name}")
+                
+            collection = db[collection_name]
+            cursor = collection.find({}, {"_id": 0})
+            docs = list(cursor)
+            
+            if not docs:
+                raise ValueError(f"Collection '{collection_name}' is empty.")
+                
+            df = pd.json_normalize(docs)
+            print(f"✅ Ingested MongoDB: {df.shape[0]} rows × {df.shape[1]} cols (db: {db_name}, collection: {collection_name})")
+            return df
+        except Exception as e:
+            raise ValueError(f"Failed to fetch data from MongoDB: {e}")
+
     if not dataset_url.startswith(("http://", "https://")):
-        raise ValueError(f"Invalid URL scheme: {dataset_url!r}. Must start with http:// or https://")
+        raise ValueError(f"Invalid URL scheme: {dataset_url!r}. Must start with http://, https://, or a DB URI (postgresql://, mysql://, sqlite://, mongodb://)")
 
     url = _normalize_google_sheets_url(dataset_url)
 

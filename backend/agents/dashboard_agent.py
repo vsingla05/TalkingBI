@@ -36,8 +36,14 @@ TASK:
    - A conversational voice narration script (max 20 seconds) summarizing the dashboard and its insights. Do not sound robotic.
 4. For EACH chart, you MUST provide a valid SQLite query to fetch its data, along with axes and type. 
    - ALWAYS use the exact table name: {table_name}
-   - CRITICAL: ONLY use columns that explicitly exist in the SCHEMA above. DO NOT invent or hallucinate column names (e.g. do not use "model_year" or "date" unless it is literally in the schema!).
-   - You MUST alias aggregation functions (e.g., SUM(revenue) AS total_revenue)
+   
+   ⚠️⚠️⚠️ CRITICAL ANTI-HALLUCINATION RULES ⚠️⚠️⚠️
+   - ONLY USE EXACT COLUMNS SHOWN IN THE 'SCHEMA' BLOCK ABOVE.
+   - NEVER INVENT, GUESS, OR HALLUCINATE COLUMNS. If you want "Revenue" but the schema says "sales_amount", YOU MUST USE "sales_amount"!
+   - If you want "Date" but the schema only has "model_year", YOU MUST USE "model_year"! 
+   - ANY JSON containing a fake column will crash the system. 
+   - You MUST alias aggregation functions (e.g., SUM(sales_amount) AS total_revenue) and map your `y_axis` property to exactly "total_revenue" so the chart finds it!
+   
    - Limit query results to 30 rows.
    
 Return ONLY valid JSON. No markdown, no extra text.

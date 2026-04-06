@@ -142,23 +142,20 @@ Generate 4 separate dashboard specifications in this exact JSON format:
 }}
 
 IMPORTANT:
-- CRITICAL: ONLY use columns that explicitly exist in the TABLE SCHEMA above. DO NOT invent or hallucinate column names!
-- Each dashboard must have EXACTLY 4 KPI cards
-- Each dashboard must have EXACTLY 4 charts
-- All metrics and columns must exist in the schema and the results
-- All KPI values must be actual numbers formatted as strings (e.g. "$5K", "1,234", "45%")
-- Use realistic percentages for "change" field (e.g., "+15%", "-8%", null if not applicable)
-- Each dashboard should focus on a different angle of the data
-- Chart titles should be descriptive and unique per dashboard
-- Use only these chart types: bar, line, area, pie, scatter
-- For "unit" field use: "$", "%", "units", "count", "" for no unit
+- CRITICAL: Read the "QUERY RESULTS" block above carefully. Your charts' `x_axis` and `y_axis` strings MUST perfectly match the keys present in the QUERY RESULTS. If a key is not in those results, the charts will render empty. Do NOT invent columns!
+- For KPIs, extract meaningful metrics from the Query Results. 
+- Each dashboard must have EXACTLY 4 KPI cards and EXACTLY 4 charts.
+- All KPI values must be actual numbers formatted as strings (e.g. "$5K", "1,234", "45%").
+- Use realistic percentages for "change" field (e.g., "+15%", "-8%", null if not applicable).
+- Each dashboard should focus on a different angle of the data.
+- Use only these chart types: bar, line, area, pie, scatter.
+- For "unit" field use: "$", "%", "units", "count", "" for no unit.
 
 KPI VALUE FORMATTING RULES:
 - Money: "$5,000", "$1.2M", "$450.50"
 - Percentage: "45%", "85.5%"
 - Count: "1,234", "50,000"
 - Decimal: "4.5", "12.8"
-- String: Any value from data
 
 Return ONLY the JSON object with NO markdown, NO explanation, NO extra text."""
 

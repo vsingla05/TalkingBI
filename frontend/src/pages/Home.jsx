@@ -139,6 +139,57 @@ export default function Home() {
   const [customResult, setCustomResult] = useState(null);
   const [customKPIs, setCustomKPIs] = useState([]);
 
+  // Database Connection Modal State
+  const [showDbModal, setShowDbModal] = useState(false);
+  const [dbConfig, setDbConfig] = useState({
+    type: "postgresql",
+    host: "localhost",
+    port: "5432",
+    dbname: "",
+    user: "postgres",
+    password: "",
+    table: ""
+  });
+
+  const handleDbConnect = async (e) => {
+    e.preventDefault();
+    const { type, host, port, dbname, user, password, table } = dbConfig;
+    let auth = "";
+    if (user || password) {
+      const encUser = encodeURIComponent(user);
+      const encPass = password ? ':' + encodeURIComponent(password) : '';
+      auth = `${encUser}${encPass}@`;
+    }
+    let portStr = port ? `:${port}` : "";
+    let encTable = encodeURIComponent(table);
+    let param = type === "mongodb" ? `collection=${encTable}` : `table=${encTable}`;
+    // don't encode host because it could be an IP or a domain, but encode dbname just in case
+    const uri = `${type}://${auth}${host}${portStr}/${encodeURIComponent(dbname)}?${param}`;
+    
+    setShowDbModal(false);
+    setLoading(true);
+    setAnalysisError(null);
+    
+    try {
+      console.log("📊 Fetching dataset from Database...");
+      const prepareResponse = await api.post("/prepare-dataset", {
+        dataset_id: uri
+      });
+      console.log("✅ Database prepared:", prepareResponse.data);
+      
+      setDatasetLink(uri);
+      setHasSession(true);
+    } catch (err) {
+      console.warn("⚠️ Database connection failed:", err);
+      const errMsg = err.response?.data?.detail?.message || "Failed to connect to database. Check credentials.";
+      setAnalysisError(errMsg);
+      setDatasetLink(uri); // Still set it so they see it
+      setHasSession(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // States for Dynamic Dashboards (4 dashboards)
   const [dynamicDashboards, setDynamicDashboards] = useState(null);
 
@@ -491,17 +542,93 @@ export default function Home() {
                         type="text"
                         value={datasetLink.startsWith("local://") ? "Uploaded Local File (Active)" : datasetLink}
                         onChange={e => { setDatasetLink(e.target.value); setHasSession(false); }}
-                        placeholder={hasSession ? "Active session — paste new URL or upload to switch…" : "Paste public CSV URL or Google Sheets link…"}
+                        placeholder={hasSession ? "Active session — paste new URL or upload to switch…" : "Paste public CSV URL, Google Sheets link, or Database URI…"}
                         className="bg-transparent border-none text-[1.05rem] text-white flex-1 min-w-0 outline-none placeholder:text-[#8a8fa8]/40 px-2 font-medium"
                       />
-                      <div className="border-l border-[#2a2d3a] pl-3 pr-1 shrink-0">
-                        <label className="cursor-pointer flex items-center gap-2 bg-[#1e2029] hover:bg-[#3f4459] border border-[#2a2d3a] text-white text-xs font-bold py-2.5 px-5 rounded-xl transition-all">
+                      <div className="border-l border-[#2a2d3a] pl-3 pr-1 shrink-0 flex items-center gap-2">
+                        <button
+                          onClick={() => setShowDbModal(true)}
+                          className="flex items-center gap-2 bg-[#2a2d3a] hover:bg-[#3f4459] border border-[#2a2d3a] text-white text-xs font-bold py-2.5 px-4 rounded-xl transition-all"
+                        >
+                          <Database size={16} className="text-[#00bcd4]" /> Connect DB
+                        </button>
+                        <label className="cursor-pointer flex items-center gap-2 bg-[#1e2029] hover:bg-[#3f4459] border border-[#2a2d3a] text-white text-xs font-bold py-2.5 px-4 rounded-xl transition-all">
                           <UploadCloud size={16} className="text-[#6c63ff]" /> Upload CSV
                           <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
                         </label>
                       </div>
                     </div>
                   </div>
+
+                  {/* Database Connection Modal */}
+                  {showDbModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                      <div className="bg-[#16181f] border border-[#2a2d3a] rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                        <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                          <Database className="text-[#00bcd4]" size={20} /> Configure Connection
+                        </h3>
+                        <form onSubmit={handleDbConnect} className="space-y-4">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="text-xs font-bold text-[#8a8fa8] mb-1 block uppercase">DB Type</label>
+                              <select 
+                                value={dbConfig.type} 
+                                onChange={e => {
+                                  let defaultPort = "5432";
+                                  if (e.target.value === "mysql") defaultPort = "3306";
+                                  if (e.target.value === "mongodb") defaultPort = "27017";
+                                  setDbConfig({...dbConfig, type: e.target.value, port: defaultPort});
+                                }}
+                                className="w-full bg-[#0e0f14] border border-[#2a2d3a] rounded-xl px-3 py-2 text-white outline-none"
+                              >
+                                <option value="postgresql">PostgreSQL</option>
+                                <option value="mysql">MySQL</option>
+                                <option value="mongodb">MongoDB</option>
+                                <option value="sqlite">SQLite (Local)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-xs font-bold text-[#8a8fa8] mb-1 block uppercase">Host</label>
+                              <input required type="text" value={dbConfig.host} onChange={e => setDbConfig({...dbConfig, host: e.target.value})} className="w-full bg-[#0e0f14] border border-[#2a2d3a] rounded-xl px-3 py-2 text-white outline-none placeholder:text-[#8a8fa8]/30" placeholder="localhost or aws-..." />
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="text-xs font-bold text-[#8a8fa8] mb-1 block uppercase">Port</label>
+                              <input type="text" value={dbConfig.port} onChange={e => setDbConfig({...dbConfig, port: e.target.value})} className="w-full bg-[#0e0f14] border border-[#2a2d3a] rounded-xl px-3 py-2 text-white outline-none placeholder:text-[#8a8fa8]/30" placeholder="5432" />
+                            </div>
+                            <div>
+                              <label className="text-xs font-bold text-[#8a8fa8] mb-1 block uppercase">Database Name</label>
+                              <input required type="text" value={dbConfig.dbname} onChange={e => setDbConfig({...dbConfig, dbname: e.target.value})} className="w-full bg-[#0e0f14] border border-[#2a2d3a] rounded-xl px-3 py-2 text-white outline-none placeholder:text-[#8a8fa8]/30" placeholder="public" />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="text-xs font-bold text-[#8a8fa8] mb-1 block uppercase">Username</label>
+                              <input type="text" value={dbConfig.user} onChange={e => setDbConfig({...dbConfig, user: e.target.value})} className="w-full bg-[#0e0f14] border border-[#2a2d3a] rounded-xl px-3 py-2 text-white outline-none placeholder:text-[#8a8fa8]/30" placeholder="postgres" />
+                            </div>
+                            <div>
+                              <label className="text-xs font-bold text-[#8a8fa8] mb-1 block uppercase">Password</label>
+                              <input type="password" value={dbConfig.password} onChange={e => setDbConfig({...dbConfig, password: e.target.value})} className="w-full bg-[#0e0f14] border border-[#2a2d3a] rounded-xl px-3 py-2 text-white outline-none placeholder:text-[#8a8fa8]/30" placeholder="••••••••" />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-bold text-[#8a8fa8] mb-1 block uppercase">{dbConfig.type === 'mongodb' ? 'Collection' : 'Table'} Name</label>
+                            <input required type="text" value={dbConfig.table} onChange={e => setDbConfig({...dbConfig, table: e.target.value})} className="w-full bg-[#0e0f14] border border-[#2a2d3a] rounded-xl px-3 py-2 text-white outline-none placeholder:text-[#8a8fa8]/30" placeholder={dbConfig.type === 'mongodb' ? 'documents' : 'users'} />
+                          </div>
+
+                          <div className="flex gap-3 justify-end pt-4 border-t border-[#2a2d3a]">
+                            <button type="button" onClick={() => setShowDbModal(false)} className="px-4 py-2 rounded-xl text-[#8a8fa8] hover:text-white font-semibold transition-colors">Cancel</button>
+                            <button type="submit" className="bg-[#00bcd4] hover:bg-[#00a3b8] text-white px-5 py-2 rounded-xl font-bold tracking-wide transition-colors">Connect</button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  )}
+
 
                   <div>
                     <label className="text-sm font-bold text-[#8a8fa8] mb-3 flex items-center gap-2 uppercase tracking-wide">Or Use Custom Natural Language</label>
@@ -639,13 +766,12 @@ export default function Home() {
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                   {activeDashboard.charts.map((chart, idx) => (
                     <ChartCard key={idx} title={chart.title} className="min-h-[420px] bg-[#0e0f14] border-[#2a2d3a]">
-                      {chart.error ? (
-                        <div className="flex items-center justify-center h-full text-[#ff5e5e] text-sm px-4 text-center">
-                          <AlertCircle className="mr-2 shrink-0" size={16} /> Data Error: {chart.error}
-                        </div>
-                      ) : (
-                        <DynamicChart chartType={chart.chart_type} xAxis={chart.x_axis} yAxis={chart.y_axis} data={chart.data} />
-                      )}
+                      <DynamicChart 
+                        chartType={chart.chart_type} 
+                        xAxis={chart.x_axis} 
+                        yAxis={chart.y_axis} 
+                        data={chart.error || !chart.data || chart.data.length === 0 ? [{ [chart.x_axis || "axis"]: "No Data", [chart.y_axis || "value"]: 0 }] : chart.data} 
+                      />
                     </ChartCard>
                   ))}
                 </div>
