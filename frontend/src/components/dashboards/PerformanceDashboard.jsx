@@ -1,96 +1,53 @@
-import React, { useState, useRef, useEffect } from "react";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from "recharts";
+import React, { useState, useEffect } from "react";
 import { Loader, Play, Square, Pause } from "lucide-react";
+import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie, ScatterChart, Scatter } from "recharts";
 
-const COLORS = ["#ff9800", "#ff5e5e", "#4caf8a", "#6c63ff"];
+const COLORS = ["#ff9800", "#ff5e5e", "#4caf8a", "#6c63ff", "#00bcd4", "#a78bfa", "#34d399"];
 
-export default function PerformanceDashboard({ charts, onVoiceSummary, isPlayingAudio = false, isPausedAudio = false, onStopAudio, onPauseAudio, onResumeAudio }) {
+export default function PerformanceDashboard({ charts, dashboardData = null, onVoiceSummary, isPlayingAudio = false, isPausedAudio = false, onStopAudio, onPauseAudio, onResumeAudio }) {
   const [isGeneratingVoice, setIsGeneratingVoice] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
 
-  // Sync isPlaying and isPaused with parent props
   useEffect(() => {
     setIsPlaying(isPlayingAudio);
     setIsPaused(isPausedAudio);
   }, [isPlayingAudio, isPausedAudio]);
 
-  // Mock data
-  const cpuData = [
-    { time: "00:00", cpu: 25, memory: 45, disk: 65 },
-    { time: "04:00", cpu: 35, memory: 50, disk: 70 },
-    { time: "08:00", cpu: 55, memory: 65, disk: 78 },
-    { time: "12:00", cpu: 45, memory: 60, disk: 75 },
-    { time: "16:00", cpu: 65, memory: 75, disk: 82 },
-    { time: "20:00", cpu: 55, memory: 70, disk: 80 },
-  ];
-
-  const uptimeData = [
-    { day: "Mon", uptime: 99.9, target: 99.95 },
-    { day: "Tue", uptime: 99.85, target: 99.95 },
-    { day: "Wed", uptime: 99.95, target: 99.95 },
-    { day: "Thu", uptime: 99.9, target: 99.95 },
-    { day: "Fri", uptime: 99.88, target: 99.95 },
-    { day: "Sat", uptime: 99.92, target: 99.95 },
-  ];
-
-  const responseTimeData = [
-    { endpoint: "API V1", time: 120, threshold: 150 },
-    { endpoint: "API V2", time: 95, threshold: 150 },
-    { endpoint: "API V3", time: 110, threshold: 150 },
-    { endpoint: "Web", time: 200, threshold: 250 },
-    { endpoint: "Mobile", time: 140, threshold: 200 },
-  ];
-
-  const throughputData = [
-    { hour: "Hour 1", requests: 4000, errors: 120 },
-    { hour: "Hour 2", requests: 3000, errors: 98 },
-    { hour: "Hour 3", requests: 2000, errors: 45 },
-    { hour: "Hour 4", requests: 2780, errors: 56 },
-    { hour: "Hour 5", requests: 1890, errors: 23 },
-    { hour: "Hour 6", requests: 2390, errors: 34 },
-  ];
+  const displayKPIs = dashboardData?.kpis && Array.isArray(dashboardData.kpis) ? dashboardData.kpis : [];
+  const displayCharts = dashboardData?.charts && Array.isArray(dashboardData.charts) ? dashboardData.charts : (charts || []);
 
   const handleVoiceSummary = async () => {
     setIsGeneratingVoice(true);
-    setIsPlaying(true);
     try {
-      const dashboardData = {
-        charts: charts,
-        insights: [
-          { text: "System performance stable with average CPU utilization at 48 percent" },
-          { text: "Uptime maintained above 99.8 percent throughout the monitoring period" },
-          { text: "API response times averaging 113 milliseconds, well within acceptable limits" },
-          { text: "Error rate reduced to 0.8 percent, indicating improved system reliability" },
-        ],
+      const summary = {
+        kpis: displayKPIs,
+        charts: displayCharts,
+        insight: dashboardData?.insight || "System health and efficiency metrics",
       };
-      await onVoiceSummary("performance", dashboardData);
+      await onVoiceSummary("performance", summary);
     } finally {
       setIsGeneratingVoice(false);
-      setIsPlaying(false);
     }
   };
 
   const toggleVoiceSummary = () => {
     if (isPlaying && !isPaused) {
-      // Currently playing -> pause
       if (onPauseAudio) onPauseAudio();
     } else if (isPaused) {
-      // Currently paused -> resume
       if (onResumeAudio) onResumeAudio();
     } else {
-      // Not playing -> start
       handleVoiceSummary();
     }
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-6 pb-12 px-6 py-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-bold text-white">Performance Dashboard</h1>
-          <p className="text-[#8a8fa8] mt-2">System health and efficiency metrics</p>
+          <h1 className="text-3xl md:text-4xl font-bold text-white">{dashboardData?.title || "Performance Dashboard"}</h1>
+          <p className="text-[#8a8fa8] mt-2">{dashboardData?.insight || "System health and efficiency metrics"}</p>
         </div>
         <div className="flex gap-3">
           <button
@@ -142,116 +99,95 @@ export default function PerformanceDashboard({ charts, onVoiceSummary, isPlaying
         </div>
       </div>
 
-      {/* Performance Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: "Avg CPU Usage", value: "48%", change: "-5%", positive: true },
-          { label: "Memory Usage", value: "62%", change: "+2%", positive: false },
-          { label: "Uptime", value: "99.9%", change: "+0.1%", positive: true },
-          { label: "Error Rate", value: "0.8%", change: "-0.3%", positive: true },
-        ].map((metric, idx) => (
-          <div key={idx} className="bg-gradient-to-br from-[#1e2029] to-[#16181f] border border-[#2a2d3a] rounded-2xl p-6">
-            <p className="text-[#8a8fa8] text-sm font-medium mb-2">{metric.label}</p>
-            <p className="text-2xl md:text-3xl font-bold text-white mb-3">{metric.value}</p>
-            <div className={`text-sm font-semibold ${metric.positive ? "text-[#4caf8a]" : "text-[#ff5e5e]"}`}>
-              {metric.change}
+      {/* KPI Cards Grid */}
+      {displayKPIs.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          {displayKPIs.map((kpi, idx) => (
+            <div key={idx} className="bg-gradient-to-br from-[#1e2029] to-[#16181f] border border-[#2a2d3a] rounded-2xl p-6 hover:border-[#ff9800]/30 transition-all">
+              <p className="text-[#8a8fa8] text-sm font-medium mb-2">{kpi.label}</p>
+              <p className="text-2xl md:text-3xl font-bold text-white mb-3">{kpi.value}</p>
+              <div className={`text-sm font-semibold ${
+                kpi.change && String(kpi.change).includes("-") ? "text-[#ff5e5e]" : "text-[#4caf8a]"
+              }`}>
+                {kpi.change || ""}
+              </div>
+              {kpi.description && <p className="text-xs text-[#6a6f8a] mt-2">{kpi.description}</p>}
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
-      {/* Charts Grid */}
+      {/* Visualizations Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* System Resources */}
-        <div className="bg-gradient-to-br from-[#1e2029] to-[#16181f] border border-[#2a2d3a] rounded-2xl p-6">
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold text-white">System Resources</h3>
-            <p className="text-[#8a8fa8] text-sm mt-1">CPU, Memory, and Disk Usage</p>
+        {displayCharts && displayCharts.length > 0 ? (
+          displayCharts.map((chart, idx) => (
+            <div key={idx} className="bg-gradient-to-br from-[#1e2029] to-[#16181f] border border-[#2a2d3a] rounded-2xl p-6">
+              <h3 className="text-lg font-semibold text-white mb-4">{chart.title || `Chart ${idx + 1}`}</h3>
+              <div className="h-80">
+                {chart.data && chart.data.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    {(chart.type === "bar" || !chart.type) && (
+                      <BarChart data={chart.data}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
+                        <XAxis dataKey={chart.x_axis} stroke="#8a8fa8" />
+                        <YAxis stroke="#8a8fa8" />
+                        <Tooltip contentStyle={{ backgroundColor: "#16181f", border: "1px solid #2a2d3a", borderRadius: "8px", color: "#f0f0f5" }} />
+                        <Legend />
+                        <Bar dataKey={chart.y_axis} fill="#ff9800" radius={[8, 8, 0, 0]}>
+                          {chart.data.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                        </Bar>
+                      </BarChart>
+                    )}
+                    {chart.type === "line" && (
+                      <LineChart data={chart.data}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
+                        <XAxis dataKey={chart.x_axis} stroke="#8a8fa8" />
+                        <YAxis stroke="#8a8fa8" />
+                        <Tooltip contentStyle={{ backgroundColor: "#16181f", border: "1px solid #2a2d3a", borderRadius: "8px", color: "#f0f0f5" }} />
+                        <Legend />
+                        <Line type="monotone" dataKey={chart.y_axis} stroke="#ff9800" strokeWidth={3} dot={{ fill: "#ff9800", r: 5 }} />
+                      </LineChart>
+                    )}
+                    {chart.type === "area" && (
+                      <AreaChart data={chart.data}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
+                        <XAxis dataKey={chart.x_axis} stroke="#8a8fa8" />
+                        <YAxis stroke="#8a8fa8" />
+                        <Tooltip contentStyle={{ backgroundColor: "#16181f", border: "1px solid #2a2d3a", borderRadius: "8px", color: "#f0f0f5" }} />
+                        <Legend />
+                        <Area type="monotone" dataKey={chart.y_axis} stroke="#ff5e5e" fill="#ff5e5e" fillOpacity={0.3} />
+                      </AreaChart>
+                    )}
+                    {chart.type === "pie" && (
+                      <PieChart>
+                        <Pie data={chart.data} dataKey={chart.y_axis} nameKey={chart.x_axis} cx="50%" cy="50%" outerRadius={100} label>
+                          {chart.data.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                        </Pie>
+                        <Tooltip contentStyle={{ backgroundColor: "#16181f", border: "1px solid #2a2d3a", borderRadius: "8px", color: "#f0f0f5" }} />
+                        <Legend />
+                      </PieChart>
+                    )}
+                    {chart.type === "scatter" && (
+                      <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
+                        <XAxis type="category" dataKey={chart.x_axis} stroke="#8a8fa8" />
+                        <YAxis type="number" dataKey={chart.y_axis} stroke="#8a8fa8" />
+                        <Tooltip contentStyle={{ backgroundColor: "#16181f", border: "1px solid #2a2d3a", borderRadius: "8px", color: "#f0f0f5" }} />
+                        <Scatter name="Data" data={chart.data} fill="#4caf8a" />
+                      </ScatterChart>
+                    )}
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-[#8a8fa8]">No data available</div>
+                )}
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="col-span-full text-center text-[#8a8fa8] py-12">
+            No charts available for this dashboard
           </div>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={cpuData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
-                <XAxis dataKey="time" stroke="#8a8fa8" />
-                <YAxis stroke="#8a8fa8" />
-                <Tooltip contentStyle={{ backgroundColor: "#16181f", border: "1px solid #2a2d3a", borderRadius: "8px", color: "#f0f0f5" }} />
-                <Legend />
-                <Line type="monotone" dataKey="cpu" stroke="#ff9800" strokeWidth={2} dot={{ r: 4 }} />
-                <Line type="monotone" dataKey="memory" stroke="#6c63ff" strokeWidth={2} dot={{ r: 4 }} />
-                <Line type="monotone" dataKey="disk" stroke="#ff5e5e" strokeWidth={2} dot={{ r: 4 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Uptime Trend */}
-        <div className="bg-gradient-to-br from-[#1e2029] to-[#16181f] border border-[#2a2d3a] rounded-2xl p-6">
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold text-white">Uptime Performance</h3>
-            <p className="text-[#8a8fa8] text-sm mt-1">Daily uptime vs target</p>
-          </div>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={uptimeData}>
-                <defs>
-                  <linearGradient id="colorUptime" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4caf8a" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#4caf8a" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
-                <XAxis dataKey="day" stroke="#8a8fa8" />
-                <YAxis stroke="#8a8fa8" domain={[99.8, 100]} />
-                <Tooltip contentStyle={{ backgroundColor: "#16181f", border: "1px solid #2a2d3a", borderRadius: "8px", color: "#f0f0f5" }} />
-                <Legend />
-                <Area type="monotone" dataKey="uptime" fill="url(#colorUptime)" stroke="#4caf8a" strokeWidth={2} />
-                <Line type="monotone" dataKey="target" stroke="#ff5e5e" strokeDasharray="5 5" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Response Time */}
-        <div className="bg-gradient-to-br from-[#1e2029] to-[#16181f] border border-[#2a2d3a] rounded-2xl p-6">
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold text-white">API Response Times</h3>
-            <p className="text-[#8a8fa8] text-sm mt-1">Milliseconds by endpoint</p>
-          </div>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={responseTimeData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
-                <XAxis dataKey="endpoint" stroke="#8a8fa8" />
-                <YAxis stroke="#8a8fa8" />
-                <Tooltip contentStyle={{ backgroundColor: "#16181f", border: "1px solid #2a2d3a", borderRadius: "8px", color: "#f0f0f5" }} />
-                <Legend />
-                <Bar dataKey="time" fill="#6c63ff" radius={[8, 8, 0, 0]} />
-                <Bar dataKey="threshold" fill="#ff5e5e" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Request Throughput */}
-        <div className="bg-gradient-to-br from-[#1e2029] to-[#16181f] border border-[#2a2d3a] rounded-2xl p-6">
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold text-white">Request Throughput</h3>
-            <p className="text-[#8a8fa8] text-sm mt-1">Requests and errors per hour</p>
-          </div>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={throughputData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
-                <XAxis dataKey="hour" stroke="#8a8fa8" />
-                <YAxis stroke="#8a8fa8" />
-                <Tooltip contentStyle={{ backgroundColor: "#16181f", border: "1px solid #2a2d3a", borderRadius: "8px", color: "#f0f0f5" }} />
-                <Legend />
-                <Bar dataKey="requests" fill="#00bcd4" radius={[8, 8, 0, 0]} />
-                <Bar dataKey="errors" fill="#ff5e5e" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
