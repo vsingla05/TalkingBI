@@ -17,19 +17,15 @@ import os
 import json
 import base64
 import math
-from groq import Groq
 
 from .ingestion_agent import fetch_dataset
 from .cleaning_agent import run_cleaning_agent
-from .storage_agent import store_dataset, get_schema_for_llm
+from .storage_agent import store_dataset, get_schema_for_llm, get_table_name
 from .sql_agent import run_sql_agent
 from .execution_agent import execute_sql
 from .dashboard_agent import run_auto_dashboard_agent
 from .dynamic_dashboard_agent import generate_four_dashboards_complete
 from .comparison_agent import run_comparison_agent
-
-# Initialize Groq client
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
 def sanitize_value(value):
@@ -57,6 +53,58 @@ def sanitize_dict(obj):
         return sanitize_value(obj)
     else:
         return obj
+
+
+def run_auto_dashboard_pipeline_cached(user_id: int) -> dict:
+    """
+    Generate 3 auto-dashboards using ALREADY-CLEANED data.
+    
+    This is called AFTER /prepare-dataset has cleaned the data.
+    Skips all cleaning steps and goes straight to dashboard generation.
+    
+    This is the optimized version that doesn't re-clean!
+    """
+    print("\n" + "="*60)
+    print(f"🚀 AUTO-DASHBOARD PIPELINE (CACHED) | user={user_id}")
+    print("="*60)
+    
+    try:
+        # Get schema and sample data from already-cleaned table
+        print("\n[STEP 1] Getting schema from cleaned table...")
+        schema, sample_csv = get_schema_for_llm(user_id)
+        
+        # Infer table name from user_id (it's stored when dataset is prepared)
+        # The table name follows pattern: user_{user_id}_data
+        table_name = get_table_name(user_id)
+        
+        # 2. Agentic Generation of 3 Dashboards
+        print("\n[STEP 2] Running Auto-Dashboard Agent (LLM)...")
+        json_spec = run_auto_dashboard_agent(table_name, schema, sample_csv)
+        
+        # 3. Execute SQL for all charts generated
+        print("\n[STEP 3] Executing SQL for all auto-generated charts...")
+        for dash in json_spec.get("dashboards", []):
+            for chart in dash.get("charts", []):
+                try:
+                    records = execute_sql(chart["sql_query"])
+                    chart["data"] = records
+                except Exception as e:
+                    print(f"⚠️ SQL execution failed for chart {chart.get('title')}: {e}")
+                    chart["data"] = []
+                    chart["error"] = str(e)
+        
+        print("\n" + "="*60)
+        print(f"✅ AUTO-DASHBOARD PIPELINE COMPLETE (CACHED)")
+        print("="*60 + "\n")
+        
+        return sanitize_dict(json_spec)
+    
+    except Exception as e:
+        print(f"❌ Auto-Dashboard Pipeline Failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
 
 def run_auto_dashboard_pipeline(dataset_url: str, user_id: int) -> dict:
     print("\n" + "="*60)
@@ -92,6 +140,180 @@ def run_auto_dashboard_pipeline(dataset_url: str, user_id: int) -> dict:
     print("="*60 + "\n")
 
     return sanitize_dict(json_spec)
+
+
+def run_pipeline_with_dashboards_cached(user_query: str, user_id: int) -> dict:
+    """
+    Generate 4 premium dashboards using ALREADY-CLEANED data.
+    
+    This is the optimized version that uses pre-cleaned data from /prepare-dataset.
+    Skips all cleaning steps - goes straight to SQL generation and dashboard creation.
+    
+    This is called after dataset preparation.
+    """
+    print("\n" + "="*60)
+    print(f"🚀 PREMIUM DASHBOARDS PIPELINE (CACHED) | user={user_id}")
+    print("="*60)
+    
+    try:
+        # STEP 1: Get schema from already-cleaned table
+        print("\n[STEP 1] Getting schema from cleaned table...")
+        schema, sample_csv = get_schema_for_llm(user_id)
+        table_name = get_table_name(user_id)
+        
+        # STEP 2: Generate SQL query from user question
+        print("\n[STEP 2] Generating SQL query (LLM)...")
+        sql_plan = run_sql_agent(user_query, schema, sample_csv)
+        
+        # STEP 3: Execute the SQL query
+        print("\n[STEP 3] Executing SQL query...")
+        records = execute_sql(sql_plan["sql_query"])
+        
+        # STEP 4: Generate 4 dynamic dashboards with real data
+        print("\n[STEP 4] Generating 4 dynamic dashboards (LLM)...")
+        dashboards_with_data = generate_four_dashboards_complete(
+            user_query=user_query,
+            table_schema=schema,
+            sample_data=sample_csv,
+            sql_results=records,
+        )
+        
+        print(f"✅ 4 Premium dashboards generated with real data")
+        
+        print("\n" + "="*60)
+        print(f"✅ PREMIUM DASHBOARDS PIPELINE COMPLETE (CACHED)")
+        print("="*60 + "\n")
+        
+        response = {
+            "type": "premium_dashboards",
+            "dashboards": dashboards_with_data,
+            "sql_query": sql_plan["sql_query"],
+            "rows_returned": len(records),
+            "table_name": table_name,
+        }
+        
+        return sanitize_dict(response)
+    
+    except Exception as e:
+        print(f"❌ Premium Dashboards Pipeline Failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
+def run_pipeline_with_dashboards(dataset_url: str, user_query: str, user_id: int) -> dict:
+    """
+    Generate 4 premium dashboards with real data analysis.
+    
+    Combines dashboard pipeline with dynamic dashboard enrichment
+    to create KPI, Analytics, Performance, and Insights dashboards
+    all with real data from the dataset.
+    
+    Parameters
+    ----------
+    dataset_url : str - URL or local path to dataset
+    user_query : str - User's question or analysis intent
+    user_id : int - User ID for session tracking
+    
+    Returns
+    -------
+    dict with 4 complete, dynamic dashboards with real data
+    """
+    print("\n" + "="*60)
+    print(f"🚀 PREMIUM DASHBOARDS PIPELINE START | user={user_id}")
+    print("="*60)
+
+    # STEP 1-3: Data Ingestion & Cleaning
+    print("\n[STEP 1-3] Ingesting & Storing...")
+    df_raw = fetch_dataset(dataset_url)
+    df_clean, cleaning_plan = run_cleaning_agent(df_raw)
+    table_name = store_dataset(df_clean, user_id)
+    schema, sample_csv = get_schema_for_llm(user_id)
+
+    # STEP 4: Get initial SQL data for dashboard enrichment
+    print("\n[STEP 4] Generating initial SQL query...")
+    sql_plan = run_sql_agent(user_query, schema, sample_csv)
+    
+    # STEP 5: Execute the SQL query
+    print("\n[STEP 5] Executing SQL query...")
+    records = execute_sql(sql_plan["sql_query"])
+    
+    # STEP 6: Generate 4 dynamic dashboards with real data
+    print("\n[STEP 6] Generating 4 dynamic dashboards...")
+    dashboards_with_data = generate_four_dashboards_complete(
+        user_query=user_query,
+        table_schema=schema,
+        sample_data=sample_csv,
+        sql_results=records,
+    )
+    
+    print(f"✅ 4 Premium dashboards generated with real data")
+    
+    print("\n" + "="*60)
+    print(f"✅ PREMIUM DASHBOARDS PIPELINE COMPLETE")
+    print("="*60 + "\n")
+    
+    # Return all 4 dashboards
+    response = {
+        "type": "premium_dashboards",
+        "dashboards": dashboards_with_data,
+        "sql_query": sql_plan["sql_query"],
+        "rows_returned": len(records),
+        "table_name": table_name,
+    }
+    
+    return sanitize_dict(response)
+
+
+def run_auto_comparison_pipeline_cached(user_id: int) -> dict:
+    """
+    Auto-generate comparisons using ALREADY-CLEANED data.
+    
+    This is the optimized version that uses pre-cleaned data from /prepare-dataset.
+    Skips all cleaning steps - goes straight to comparison analysis.
+    """
+    print("\n" + "="*60)
+    print(f"🔍 AUTO-COMPARISON PIPELINE (CACHED) | user={user_id}")
+    print("="*60)
+    
+    try:
+        # Get schema from already-cleaned table
+        print("\n[STEP 1] Getting schema from cleaned table...")
+        schema, sample_csv = get_schema_for_llm(user_id)
+        table_name = get_table_name(user_id)
+        
+        # Run Comparison Agent
+        print("\n[STEP 2] Running Comparison Agent (LLM)...")
+        comparisons = run_comparison_agent(
+            table_name=table_name,
+            schema=schema,
+            sample_csv=sample_csv,
+            execute_sql_func=execute_sql
+        )
+        
+        print("\n" + "="*60)
+        print(f"✅ AUTO-COMPARISON PIPELINE COMPLETE (CACHED)")
+        print(f"   Generated {len(comparisons.get('cards', []))} comparison cards")
+        print("="*60 + "\n")
+        
+        return {
+            "type": "comparisons",
+            "comparisons": comparisons.get("comparisons", []),
+            "cards": comparisons.get("cards", []),
+            "field_analysis": comparisons.get("field_analysis", {}),
+        }
+    
+    except Exception as e:
+        print(f"❌ Auto-Comparison Pipeline Failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "type": "comparisons",
+            "comparisons": [],
+            "cards": [],
+            "field_analysis": {},
+            "error": str(e)
+        }
 
 
 def run_auto_comparison_pipeline(dataset_url: str, user_id: int) -> dict:

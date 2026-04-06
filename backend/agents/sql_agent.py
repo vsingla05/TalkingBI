@@ -19,8 +19,8 @@ LLM JSON Contract:
 
 import json
 import re
-from groq import Groq
-from config import GROQ_API_KEY, LLM_MODEL
+from config import LLM_MODEL
+from .llm_utils import call_groq_with_retry
 
 
 def _build_sql_prompt(
@@ -182,17 +182,16 @@ def run_sql_agent(
     Validates semantic correctness and warns about potential issues.
     """
     prompt = _build_sql_prompt(table_name, schema, sample_csv, user_query, requested_charts)
-    client = Groq(api_key=GROQ_API_KEY)
 
     print("\n🤖 SQL Agent → Calling LLM for query plan...")
-    response = client.chat.completions.create(
-        model=LLM_MODEL,
+    raw_output = call_groq_with_retry(
         messages=[{"role": "user", "content": prompt}],
+        model=LLM_MODEL,
         temperature=0.0,   # Deterministic for SQL
         max_tokens=1024,
+        use_cache=True,
     )
 
-    raw_output = response.choices[0].message.content
     print(f"📋 SQL Agent raw output:\n{raw_output}\n")
 
     try:

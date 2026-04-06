@@ -21,6 +21,14 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 def _dataset_key(user_id: int) -> str:
     return f"active_dataset:{user_id}"
 
+def _cleaned_table_key(user_id: int) -> str:
+    """Redis key for the cleaned table name (prevents re-cleaning)."""
+    return f"cleaned_table:{user_id}"
+
+def _dataset_cleaning_status_key(user_id: int) -> str:
+    """Redis key to track if dataset is being cleaned."""
+    return f"dataset_cleaning_status:{user_id}"
+
 def cleanup_old_uploads():
     """Delete uploaded files older than the SESSION_TTL (1 hour)."""
     now = time.time()
@@ -80,6 +88,120 @@ async def upload_dataset(file: UploadFile = File(...), user_id: int = Depends(ge
         "message": "File uploaded successfully",
         "dataset_id": local_uri
     }
+
+
+@router.post("/prepare-dataset")
+async def prepare_dataset(body: SetDatasetRequest, user_id: int = Depends(get_current_user_id)):
+    """
+    ONE-TIME CLEANING AND STORAGE of dataset.
+    
+    This endpoint should be called ONCE after dataset upload.
+    It:
+    1. Fetches and cleans the dataset (LLM-driven)
+    2. Stores cleaned data in SQLite
+    3. Caches the table name in Redis
+    
+    All subsequent button clicks (dashboards, comparisons, etc.)
+    will use this cached table name without re-cleaning.
+    
+    Returns:
+    - table_name: Cleaned table name for use in queries
+    - schema: Table schema for LLM agents
+    - status: "prepared" when successful
+    """
+    from agents.ingestion_agent import fetch_dataset
+    from agents.cleaning_agent import run_cleaning_agent
+    from agents.storage_agent import store_dataset, get_schema_for_llm
+    
+    # Resolve dataset URL
+    dataset_link = body.dataset_id.strip() if body.dataset_id else None
+    redis_key = _dataset_key(user_id)
+    
+    if dataset_link:
+        redis_client.set(redis_key, dataset_link, ex=SESSION_TTL)
+    else:
+        dataset_link = redis_client.get(redis_key)
+        if not dataset_link:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "NO_DATASET", "message": "No dataset found."}
+            )
+    
+    # Check if already prepared
+    cleaned_table_key = _cleaned_table_key(user_id)
+    existing_table = redis_client.get(cleaned_table_key)
+    
+    if existing_table:
+        # Already cleaned - return cached table info
+        try:
+            schema, sample_csv = await run_in_threadpool(get_schema_for_llm, user_id)
+            return {
+                "status": "already_prepared",
+                "table_name": existing_table,
+                "schema": schema,
+                "sample_data": sample_csv,
+                "message": f"Dataset already prepared. Using cached table: {existing_table}"
+            }
+        except Exception as e:
+            print(f"⚠️  Error retrieving cached schema: {e}")
+    
+    # Mark as cleaning in progress
+    status_key = _dataset_cleaning_status_key(user_id)
+    redis_client.set(status_key, "cleaning", ex=60)
+    
+    try:
+        print(f"\n📊 PREPARING DATASET FOR USER {user_id}")
+        print(f"   Dataset: {dataset_link}")
+        
+        # Step 1: Fetch raw dataset
+        print("   [1/3] Fetching dataset...")
+        df_raw = await run_in_threadpool(fetch_dataset, dataset_link)
+        
+        # Step 2: Clean dataset (LLM-driven, includes feature engineering)
+        print("   [2/3] Cleaning & feature engineering (LLM)...")
+        df_clean, cleaning_plan = await run_in_threadpool(run_cleaning_agent, df_raw)
+        
+        # Step 3: Store cleaned data in SQLite
+        print("   [3/3] Storing cleaned dataset...")
+        table_name = await run_in_threadpool(store_dataset, df_clean, user_id)
+        
+        # Get schema for LLM agents
+        schema, sample_csv = await run_in_threadpool(get_schema_for_llm, user_id)
+        
+        # Cache the table name so dashboards don't re-clean
+        redis_client.set(cleaned_table_key, table_name, ex=SESSION_TTL)
+        redis_client.delete(status_key)  # Clear cleaning status
+        
+        print(f"✅ DATASET PREPARED")
+        print(f"   Table: {table_name}")
+        print(f"   Rows: {len(df_clean)}")
+        print(f"   Schema: {len(schema.splitlines())} fields")
+        
+        return {
+            "status": "prepared",
+            "table_name": table_name,
+            "schema": schema,
+            "sample_data": sample_csv,
+            "rows": len(df_clean),
+            "cleaning_plan": cleaning_plan,
+            "message": f"Dataset successfully prepared. {len(df_clean)} rows ready for analysis."
+        }
+        
+    except ValueError as exc:
+        redis_client.delete(status_key)
+        print(f"❌ Preparation ValueError: {exc}")
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "PREP_ERROR", "message": str(exc)},
+        )
+    except Exception as exc:
+        redis_client.delete(status_key)
+        print(f"❌ Preparation failed: {exc}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "PREP_FAILED", "message": f"Failed to prepare dataset: {exc}"},
+        )
 
 
 @router.post("/analyze")
@@ -154,28 +276,29 @@ async def analyze(body: AnalyzeRequest, user_id: int = Depends(get_current_user_
 @router.post("/auto-dashboard")
 async def auto_dashboard(body: SetDatasetRequest, user_id: int = Depends(get_current_user_id)):
     """
-    Triggers the Autonomous Dashboard Agent to generate 4 complete dashboards
-    with charts, insights, and voice naration scripts from a dataset URL.
-    """
-    from agents.pipeline import run_auto_dashboard_pipeline
-
-    dataset_link = body.dataset_id.strip() if body.dataset_id else None
-    redis_key = _dataset_key(user_id)
+    Generate 3 auto-dashboards using ALREADY-CLEANED data.
     
-    if dataset_link:
-        redis_client.set(redis_key, dataset_link, ex=SESSION_TTL)
-    else:
-        dataset_link = redis_client.get(redis_key)
-        if not dataset_link:
-            raise HTTPException(
-                status_code=400,
-                detail={"error": "NO_DATASET", "message": "No dataset found."}
-            )
-
+    IMPORTANT: Call /prepare-dataset FIRST to clean and prepare the data.
+    This endpoint uses cached cleaned data - no re-cleaning happens.
+    
+    Returns 3 auto-discovered dashboards with real data.
+    """
+    from agents.pipeline import run_auto_dashboard_pipeline_cached
+    
+    # Verify that dataset has been prepared
+    cleaned_table_key = _cleaned_table_key(user_id)
+    if not redis_client.get(cleaned_table_key):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "NOT_PREPARED",
+                "message": "Dataset not prepared. Call /prepare-dataset first."
+            }
+        )
+    
     try:
         result = await run_in_threadpool(
-            run_auto_dashboard_pipeline,
-            dataset_url=dataset_link,
+            run_auto_dashboard_pipeline_cached,
             user_id=user_id,
         )
     except Exception as exc:
@@ -187,6 +310,92 @@ async def auto_dashboard(body: SetDatasetRequest, user_id: int = Depends(get_cur
         )
 
     return result
+
+
+@router.post("/generate-premium-dashboards")
+async def generate_premium_dashboards(body: AskQuestionRequest, user_id: int = Depends(get_current_user_id)):
+    """
+    Generate 4 premium dashboards using ALREADY-CLEANED data.
+    
+    IMPORTANT: Call /prepare-dataset FIRST to clean and prepare the data.
+    This endpoint uses cached cleaned data - no re-cleaning happens.
+    
+    Returns 4 dynamic dashboards (KPI, Analytics, Performance, Insights)
+    with real data based on user's question.
+    """
+    from agents.pipeline import run_pipeline_with_dashboards_cached
+    
+    # Verify that dataset has been prepared
+    cleaned_table_key = _cleaned_table_key(user_id)
+    if not redis_client.get(cleaned_table_key):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "NOT_PREPARED",
+                "message": "Dataset not prepared. Call /prepare-dataset first."
+            }
+        )
+    
+    # Run the cached pipeline (no re-cleaning)
+    try:
+        result = await run_in_threadpool(
+            run_pipeline_with_dashboards_cached,
+            user_query=body.question.strip() if body.question else "Analyze this dataset",
+            user_id=user_id,
+        )
+        return result
+    except ValueError as exc:
+        print("[generate_premium_dashboards] Pipeline ValueError:", exc)
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "DASHBOARD_ERROR", "message": str(exc)},
+        )
+    except Exception as exc:
+        print("[generate_premium_dashboards] unexpected exception:")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "INTERNAL_ERROR", "message": f"Failed to generate premium dashboards: {exc}"},
+        )
+
+
+@router.post("/smart-comparisons")
+async def smart_comparisons(body: SetDatasetRequest, user_id: int = Depends(get_current_user_id)):
+    """
+    Generate smart comparisons and field analysis using ALREADY-CLEANED data.
+    
+    IMPORTANT: Call /prepare-dataset FIRST to clean and prepare the data.
+    This endpoint uses cached cleaned data - no re-cleaning happens.
+    
+    Returns auto-discovered comparisons, metrics, and relationships
+    between all numeric/categorical fields.
+    """
+    from agents.pipeline import run_auto_comparison_pipeline_cached
+    
+    # Verify that dataset has been prepared
+    cleaned_table_key = _cleaned_table_key(user_id)
+    if not redis_client.get(cleaned_table_key):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "NOT_PREPARED",
+                "message": "Dataset not prepared. Call /prepare-dataset first."
+            }
+        )
+    
+    try:
+        result = await run_in_threadpool(
+            run_auto_comparison_pipeline_cached,
+            user_id=user_id,
+        )
+        return result
+    except Exception as exc:
+        print("[smart_comparisons] unexpected exception:")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "COMPARISON_ERROR", "message": str(exc)}
+        )
 
 
 @router.post("/dashboard-voice-summary")

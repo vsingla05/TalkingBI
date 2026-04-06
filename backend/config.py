@@ -18,9 +18,15 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 # ─── Session TTL ───────────────────────────────────────────────────────────────
 SESSION_TTL = 3600  # seconds (1 hour)
 
-# ─── LLM ───────────────────────────────────────────────────────────────────────
+# ─── LLM ────────────────────────────────────────────────────────────────────
+#
+# PRIMARY: Ollama (local, always used first)
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "llama3.2:8b")
+#
+# OPTIONAL FALLBACK: Groq (cloud, only used if GROQ_API_KEY is set)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
+LLM_MODEL    = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")  # Groq model name
 
 # ─── Analysis DB ────────────────────────────────────────────────────────────────
 # SQLite file for per-session analysis tables (separate from user auth DB)

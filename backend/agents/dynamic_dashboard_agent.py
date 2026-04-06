@@ -18,8 +18,8 @@ import re
 import time
 import traceback
 import math
-from groq import Groq
-from config import GROQ_API_KEY, LLM_MODEL
+from config import LLM_MODEL
+from .llm_utils import call_groq_with_retry
 
 
 def sanitize_value(value):
@@ -142,9 +142,10 @@ Generate 4 separate dashboard specifications in this exact JSON format:
 }}
 
 IMPORTANT:
+- CRITICAL: ONLY use columns that explicitly exist in the TABLE SCHEMA above. DO NOT invent or hallucinate column names!
 - Each dashboard must have EXACTLY 4 KPI cards
 - Each dashboard must have EXACTLY 4 charts
-- All metrics and columns must exist in the results
+- All metrics and columns must exist in the schema and the results
 - All KPI values must be actual numbers formatted as strings (e.g. "$5K", "1,234", "45%")
 - Use realistic percentages for "change" field (e.g., "+15%", "-8%", null if not applicable)
 - Each dashboard should focus on a different angle of the data
@@ -247,29 +248,20 @@ def generate_four_dashboards(
     # Build prompt
     prompt = _build_four_dashboards_prompt(user_query, table_schema, sample_data, sql_results)
     
-    # Call Groq LLM
-    client = Groq(api_key=GROQ_API_KEY)
-    # Retry LLM call up to 2 times to handle transient errors
-    llm_output = None
-    attempts = 2
-    for attempt in range(1, attempts + 1):
-        try:
-            response = client.chat.completions.create(
-                model=LLM_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=4000,
-            )
-            llm_output = response.choices[0].message.content
-            print(f"📋 Dashboard Agent raw output:\n{llm_output[:500]}...\n")
-            break
-        except Exception as exc:
-            print(f"[generate_four_dashboards] LLM call failed (attempt {attempt}/{attempts}): {exc}")
-            traceback.print_exc()
-            if attempt < attempts:
-                time.sleep(1)
-                continue
-            raise ValueError(f"LLM_CALL_FAILED: {exc}")
+    # Call Groq LLM with caching and rate limit handling
+    print(f"[generate_four_dashboards] Calling LLM with caching...")
+    try:
+        llm_output = call_groq_with_retry(
+            messages=[{"role": "user", "content": prompt}],
+            model=LLM_MODEL,
+            temperature=0.3,
+            max_tokens=4000,
+            use_cache=True,
+        )
+        print(f"📋 Dashboard Agent raw output:\n{llm_output[:500]}...\n")
+    except Exception as exc:
+        print(f"❌ LLM call failed: {exc}")
+        raise ValueError(f"LLM_CALL_FAILED: {exc}")
     
     # Parse response with error handling
     try:

@@ -32,8 +32,8 @@ import re
 import time
 import traceback
 import pandas as pd
-from groq import Groq
-from config import GROQ_API_KEY, LLM_MODEL
+from config import LLM_MODEL
+from .llm_utils import call_groq_with_retry
 
 
 def _build_cleaning_prompt(sample_csv: str, columns: list[str]) -> str:
@@ -200,30 +200,20 @@ def run_cleaning_agent(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     columns = list(df.columns)
     prompt = _build_cleaning_prompt(sample, columns)
 
-    client = Groq(api_key=GROQ_API_KEY)
-
     print("\n🤖 Cleaning Agent → Calling LLM for cleaning plan...")
-    # Retry LLM call a couple times in case of transient errors
-    raw_output = None
-    attempts = 2
-    for attempt in range(1, attempts + 1):
-        try:
-            response = client.chat.completions.create(
-                model=LLM_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=2048,
-            )
-            raw_output = response.choices[0].message.content
-            print(f"📋 Raw LLM output:\n{raw_output}\n")
-            break
-        except Exception as exc:
-            print(f"[run_cleaning_agent] LLM call failed (attempt {attempt}/{attempts}): {exc}")
-            traceback.print_exc()
-            if attempt < attempts:
-                time.sleep(1)
-                continue
-            raise ValueError(f"LLM_CALL_FAILED: {exc}")
+    try:
+        raw_output = call_groq_with_retry(
+            messages=[{"role": "user", "content": prompt}],
+            model=LLM_MODEL,
+            temperature=0.1,
+            max_tokens=2048,
+            use_cache=True,
+        )
+        print(f"📋 Raw LLM output:\n{raw_output}\n")
+    except Exception as exc:
+        print(f"[run_cleaning_agent] LLM call failed: {exc}")
+        traceback.print_exc()
+        raise ValueError(f"LLM_CALL_FAILED: {exc}")
 
     try:
         plan = _parse_llm_json(raw_output)

@@ -176,13 +176,30 @@ export default function Home() {
     const formData = new FormData();
     formData.append("file", file);
 
-    setLoading(true); setAnalysisError(null);
+    setLoading(true); 
+    setAnalysisError(null);
+    
     try {
-      const response = await api.post("/upload", formData, {
+      // Step 1: Upload the file
+      const uploadResponse = await api.post("/upload", formData, {
         headers: { "Content-Type": "multipart/form-data" }
       });
-      setDatasetLink(response.data.dataset_id);
+      setDatasetLink(uploadResponse.data.dataset_id);
       setHasSession(true);
+      
+      // Step 2: Prepare dataset (clean + store) - ONE TIME
+      console.log("📊 Preparing dataset (cleaning & storing)...");
+      try {
+        const prepareResponse = await api.post("/prepare-dataset", {
+          dataset_id: uploadResponse.data.dataset_id
+        });
+        console.log("✅ Dataset prepared:", prepareResponse.data);
+        setAnalysisError(null); // Clear any errors
+      } catch (prepareErr) {
+        // If prepare fails, show warning but don't prevent upload
+        console.warn("⚠️ Dataset preparation warning:", prepareErr);
+        setAnalysisError("Upload successful but auto-preparation failed. Try clicking 'Generate 3 AI Dashboards' to prepare now.");
+      }
     } catch (err) {
       setAnalysisError(err.response?.data?.detail?.message || "File upload failed.");
     } finally {
@@ -294,18 +311,47 @@ export default function Home() {
     setActiveMode("auto_detail");
   };
 
-  // Open Premium Dashboards
-  const openPremiumDashboards = () => {
-    setActiveMode("dashboard_view");
+  // Generate 4 Premium Dashboards with real data
+  const generatePremiumDashboards = async () => {
+    setLoading(true);
+    setAnalysisError(null);
+    
+    try {
+      const response = await api.post("/generate-premium-dashboards", {
+        question: "Analyze this dataset and generate comprehensive insights",
+        requested_charts: ["bar", "line", "pie", "area"]
+      });
+      
+      console.log("Premium dashboards generated:", response.data);
+      
+      // If response contains dashboards
+      if (response.data.dashboards) {
+        // Set the dashboards for rendering
+        setDynamicDashboards(response.data.dashboards);
+        setActiveMode("dashboard_view");
+      } else {
+        setAnalysisError("No dashboard data received");
+      }
+    } catch (err) {
+      console.error("Premium dashboard error:", err);
+      setAnalysisError(
+        err.response?.data?.detail?.message || 
+        "Failed to generate premium dashboards. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // 3: Generate Smart Comparisons
+  // 3: Generate Smart Comparisons (using cached data)
   const generateComparisons = async () => {
     setLoadingComparisons(true);
     setAnalysisError(null);
     
     try {
-      const response = await api.post("/generate-comparisons");
+      const response = await api.post("/smart-comparisons", {
+        dataset_id: datasetLink.trim() || null
+      });
       console.log("Comparisons generated:", response.data);
       
       if (response.data.cards) {
@@ -315,7 +361,10 @@ export default function Home() {
         setAnalysisError("No comparisons data received");
       }
     } catch (err) {
-      setAnalysisError(err.response?.data?.detail?.message || "Failed to generate comparisons.");
+      setAnalysisError(
+        err.response?.data?.detail?.message || 
+        "Failed to generate comparisons. Make sure dataset is prepared first."
+      );
       console.error("Comparison error:", err);
     } finally {
       setLoadingComparisons(false);
@@ -405,8 +454,9 @@ export default function Home() {
                   </h2>
                   <div className="flex items-center gap-3">
                     <button
-                      onClick={openPremiumDashboards}
-                      className="bg-gradient-to-r from-[#4caf8a] to-[#34d399] hover:from-[#3d9371] hover:to-[#2fc288] text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-[0_0_15px_rgba(76,175,138,0.3)] transition-all"
+                      onClick={generatePremiumDashboards}
+                      disabled={!hasSession && !datasetLink}
+                      className="bg-gradient-to-r from-[#4caf8a] to-[#34d399] hover:from-[#3d9371] hover:to-[#2fc288] text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-[0_0_15px_rgba(76,175,138,0.3)] transition-all disabled:opacity-50"
                     >
                       <LayoutDashboard size={18} /> 4 Premium Dashboards
                     </button>

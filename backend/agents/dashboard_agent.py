@@ -1,14 +1,14 @@
 """
 AGENT 6: Autonomous Dashboard Generation
 ────────────────────────────────────────
-Generates a complete BI experience with 4 themed dashboards, 12 charts total,
+Generates a complete BI experience with 3 themed dashboards, 9-12 charts total,
 insights, and voice narration scripts based on the dataset schema.
 """
 
 import json
 import re
-from groq import Groq
-from config import GROQ_API_KEY, LLM_MODEL
+from config import LLM_MODEL
+from .llm_utils import call_groq_with_retry
 
 
 def _build_auto_dashboard_prompt(table_name: str, schema: str, sample_csv: str) -> str:
@@ -36,6 +36,7 @@ TASK:
    - A conversational voice narration script (max 20 seconds) summarizing the dashboard and its insights. Do not sound robotic.
 4. For EACH chart, you MUST provide a valid SQLite query to fetch its data, along with axes and type. 
    - ALWAYS use the exact table name: {table_name}
+   - CRITICAL: ONLY use columns that explicitly exist in the SCHEMA above. DO NOT invent or hallucinate column names (e.g. do not use "model_year" or "date" unless it is literally in the schema!).
    - You MUST alias aggregation functions (e.g., SUM(revenue) AS total_revenue)
    - Limit query results to 30 rows.
    
@@ -74,27 +75,51 @@ JSON STRUCTURE:
 """
 
 
-def run_auto_dashboard_agent(table_name: str, schema: str, sample_csv: str) -> dict:
-    prompt = _build_auto_dashboard_prompt(table_name, schema, sample_csv)
-    client = Groq(api_key=GROQ_API_KEY)
+def _extract_json(text: str) -> dict:
+    """Try multiple strategies to extract valid JSON from LLM output."""
+    text = text.strip()
 
-    print("\n🤖 Auto-Dashboard Agent → Calling LLM to generate 4 full dashboards...")
-    response = client.chat.completions.create(
-        model=LLM_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,
-        max_tokens=6000,
-    )
-
-    raw = response.choices[0].message.content
-    text = raw.strip()
+    # 1. Strip markdown fences
     text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"\s*```$", "", text, flags=re.MULTILINE)
-    
+    text = text.strip()
+
+    # 2. Direct parse
     try:
-        plan = json.loads(text.strip())
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # 3. Extract outermost { ... } block and fix trailing commas
+    start = text.find('{')
+    end = text.rfind('}')
+    if start >= 0 and end > start:
+        candidate = text[start:end + 1]
+        candidate = re.sub(r',(\s*[}\]])', r'\1', candidate)
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError(f"Could not extract valid JSON from LLM output. First 300 chars:\n{text[:300]}")
+
+
+def run_auto_dashboard_agent(table_name: str, schema: str, sample_csv: str) -> dict:
+    prompt = _build_auto_dashboard_prompt(table_name, schema, sample_csv)
+
+    print("\n🤖 Auto-Dashboard Agent → Calling LLM to generate 3 full dashboards...")
+    raw = call_groq_with_retry(
+        messages=[{"role": "user", "content": prompt}],
+        model=LLM_MODEL,
+        temperature=0.2,
+        max_tokens=6000,
+        use_cache=True,
+    )
+
+    try:
+        plan = _extract_json(raw)
         print(f"✅ Auto-Dashboard AI generated {len(plan.get('dashboards', []))} dashboards.")
         return plan
-    except json.JSONDecodeError as e:
-        print(f"JSON Output that failed:\n{text[:500]}")
+    except ValueError as e:
+        print(f"❌ JSON parsing failed: {e}")
         raise ValueError(f"Auto-Dashboard Agent returned invalid JSON: {e}")

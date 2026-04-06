@@ -17,9 +17,7 @@ import os
 import json
 import re
 from typing import List, Dict, Any
-from groq import Groq
-
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+from .llm_utils import call_groq_with_retry
 
 def analyze_schema(schema: str, sample_csv: str) -> Dict[str, Any]:
     """
@@ -60,13 +58,13 @@ Return ONLY valid JSON (no markdown, no code blocks):
 
 Be accurate. Only include fields that actually exist in the schema."""
 
-    response = groq_client.messages.create(
-        model="mixtral-8x7b-32768",
+    raw = call_groq_with_retry(
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.1,
         max_tokens=1000,
-        messages=[{"role": "user", "content": prompt}]
+        use_cache=True,
     )
-    
-    result_text = response.content[0].text.strip()
+    result_text = raw.strip()
     
     # Remove markdown code blocks if present
     result_text = re.sub(r'^```(?:json)?\n?', '', result_text)
