@@ -179,6 +179,7 @@ export default function Home() {
       
       setDatasetLink(uri);
       setHasSession(true);
+  try { window.dispatchEvent(new CustomEvent('dataset-updated', { detail: { dataset: uri } })); } catch(e){}
     } catch (err) {
       console.warn("⚠️ Database connection failed:", err);
       const errMsg = err.response?.data?.detail?.message || "Failed to connect to database. Check credentials.";
@@ -237,6 +238,7 @@ export default function Home() {
       });
       setDatasetLink(uploadResponse.data.dataset_id);
       setHasSession(true);
+  try { window.dispatchEvent(new CustomEvent('dataset-updated', { detail: { dataset: uploadResponse.data.dataset_id } })); } catch(e){}
       
       // Step 2: Prepare dataset (clean + store) - ONE TIME
       console.log("📊 Preparing dataset (cleaning & storing)...");
@@ -246,6 +248,7 @@ export default function Home() {
         });
         console.log("✅ Dataset prepared:", prepareResponse.data);
         setAnalysisError(null); // Clear any errors
+  try { window.dispatchEvent(new CustomEvent('dataset-updated', { detail: { dataset: uploadResponse.data.dataset_id } })); } catch(e){}
       } catch (prepareErr) {
         // If prepare fails, show warning but don't prevent upload
         console.warn("⚠️ Dataset preparation warning:", prepareErr);

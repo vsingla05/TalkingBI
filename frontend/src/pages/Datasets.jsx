@@ -24,6 +24,9 @@ export default function Datasets() {
 
   useEffect(() => {
     load();
+    const handler = (e) => { load(); };
+    window.addEventListener('dataset-updated', handler);
+    return () => { window.removeEventListener('dataset-updated', handler); };
   }, []);
 
   return (
