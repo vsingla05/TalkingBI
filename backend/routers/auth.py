@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 @router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def signup(body: SignupRequest, db: Session = Depends(get_db)):
+def signup(body: SignupRequest, db: Session = Depends(get_db), request: Request = None):
     """
     Register a new user.
     - Validates email + password via Pydantic.
@@ -25,7 +25,15 @@ def signup(body: SignupRequest, db: Session = Depends(get_db)):
     - Hashes password with bcrypt before storing.
     - Returns a JWT so the user is immediately logged in.
     """
-    existing = db.query(User).filter(User.email == body.email).first()
+    # If app startup previously failed to create/connect to the DB, return 503
+    if request and not request.app.state.db_available:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database is currently unavailable")
+
+    try:
+        existing = db.query(User).filter(User.email == body.email).first()
+    except Exception:
+        # Surface a friendly error when DB operations fail
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database error during signup")
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -44,14 +52,20 @@ def signup(body: SignupRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(body: LoginRequest, db: Session = Depends(get_db)):
+def login(body: LoginRequest, db: Session = Depends(get_db), request: Request = None):
     """
     Authenticate an existing user.
     - Looks up the user by email.
     - Verifies the bcrypt password hash.
     - Issues a new JWT and refreshes the Redis session.
     """
-    user = db.query(User).filter(User.email == body.email).first()
+    if request and not request.app.state.db_available:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database is currently unavailable")
+
+    try:
+        user = db.query(User).filter(User.email == body.email).first()
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database error during login")
 
     # Generic message to avoid user-enumeration attacks
     if not user or not verify_password(body.password, user.password):
