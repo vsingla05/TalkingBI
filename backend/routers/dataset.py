@@ -1,8 +1,10 @@
 import os
+import pandas as pd
 import time
 import shutil
 import traceback
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi.responses import FileResponse
 from fastapi.concurrency import run_in_threadpool
 
 from auth_utils import get_current_user_id
@@ -310,6 +312,71 @@ async def auto_dashboard(body: SetDatasetRequest, user_id: int = Depends(get_cur
         )
 
     return result
+
+
+@router.get("/list-datasets")
+def list_datasets(user_id: int = Depends(get_current_user_id)):
+    """Return a list of uploaded local datasets for the user plus the active redis dataset_id."""
+    files = []
+    try:
+        for fname in os.listdir(UPLOAD_DIR):
+            if fname.startswith(f"user{user_id}_"):
+                path = os.path.join(UPLOAD_DIR, fname)
+                files.append({
+                    "name": fname,
+                    "path": path,
+                    "uri": f"local://{path}",
+                    "size": os.path.getsize(path)
+                })
+    except Exception:
+        files = []
+
+    active = redis_client.get(_dataset_key(user_id))
+    return {"active_dataset": active, "uploads": files}
+
+
+
+@router.get("/download")
+def download_dataset(filename: str, user_id: int = Depends(get_current_user_id)):
+    """Stream a previously uploaded file to the authenticated user.
+
+    Only files matching the user{user_id}_ prefix are allowed.
+    """
+    safe_prefix = f"user{user_id}_"
+    if not filename.startswith(safe_prefix):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(file_path, media_type="text/csv", filename=filename)
+
+
+
+@router.get("/preview")
+def preview_dataset(filename: str, rows: int = 20, user_id: int = Depends(get_current_user_id)):
+    """Return a small preview of the uploaded CSV (columns + first `rows` records).
+
+    Only files starting with `user{user_id}_` are allowed.
+    """
+    safe_prefix = f"user{user_id}_"
+    if not filename.startswith(safe_prefix):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    try:
+        # Read a limited number of rows for preview
+        df = pd.read_csv(file_path, nrows=rows)
+        cols = df.columns.tolist()
+        records = df.fillna("").to_dict(orient="records")
+        return {"columns": cols, "rows": records, "rows_returned": len(records)}
+    except Exception as e:
+        print(f"[preview_dataset] failed to read {file_path}: {e}")
+        raise HTTPException(status_code=500, detail={"error": "PREVIEW_FAILED", "message": str(e)})
 
 
 @router.post("/generate-premium-dashboards")

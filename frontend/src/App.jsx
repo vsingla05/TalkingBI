@@ -5,6 +5,9 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
 import Home from "./pages/Home";
+import Datasets from "./pages/Datasets";
+import Analytics from "./pages/Analytics";
+import Settings from "./pages/Settings";
 
 export default function App() {
   return (
@@ -18,9 +21,9 @@ export default function App() {
           {/* Protected routes — require a valid JWT */}
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<Home />} />
-            <Route path="/datasets" element={<Home />} />
-            <Route path="/dashboards" element={<Home />} />
-            <Route path="/settings" element={<Home />} />
+            <Route path="/datasets" element={<Datasets />} />
+            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/settings" element={<Settings />} />
           </Route>
 
           {/* Root redirect */}

@@ -7,7 +7,7 @@ export default function Sidebar() {
   const navItems = [
     { name: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
     { name: "Datasets", path: "/datasets", icon: Database },
-    { name: "Analytics", path: "/dashboards", icon: TrendingUp },
+    { name: "Analytics", path: "/analytics", icon: TrendingUp },
     { name: "Settings", path: "/settings", icon: Settings },
   ];
 
